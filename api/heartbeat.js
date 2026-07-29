@@ -1,58 +1,55 @@
 /**
  * POST /api/heartbeat
- * ESP32 sends a heartbeat and checks for pending commands.
+ * ESP32 sends heartbeat, auto-registers if new, returns pending command.
  * Body: { deviceId: string }
  * Response: { success: true, command: string|null }
  */
-const { readDevices, writeDevices } = require('./_github');
+const store = require('./_store');
 
 module.exports = async (req, res) => {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'POST') {
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'Method not allowed' }));
+  }
 
   try {
     const { deviceId } = req.body || {};
-
     if (!deviceId) {
-      return res.status(400).json({ error: 'Missing deviceId' });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Missing deviceId' }));
     }
 
-    const { devices, sha } = await readDevices();
-
-    // Check if device exists — auto-register if not
-    if (!devices[deviceId]) {
-      devices[deviceId] = {
-        id: deviceId,
+    // Auto-register if new device
+    const existing = store.getDevice(deviceId);
+    if (!existing) {
+      store.upsertDevice(deviceId, {
         name: `ESP32-${deviceId.substring(0, 6)}`,
         status: 'online',
-        firstSeen: Date.now(),
-        lastSeen: Date.now(),
         ip: req.headers['x-forwarded-for'] || '',
         pendingCommand: null
-      };
-      await writeDevices(devices, sha);
-      return res.json({ success: true, command: null });
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, command: null }));
     }
 
-    // Grab any pending command before clearing it
-    const command = devices[deviceId].pendingCommand || null;
-    devices[deviceId].pendingCommand = null;
+    // Check for pending command
+    const command = store.getAndClearPendingCommand(deviceId);
 
     // Update status
-    devices[deviceId].status = 'online';
-    devices[deviceId].lastSeen = Date.now();
-    devices[deviceId].ip = req.headers['x-forwarded-for'] || '';
+    store.upsertDevice(deviceId, {
+      status: 'online',
+      ip: req.headers['x-forwarded-for'] || ''
+    });
 
-    await writeDevices(devices, sha);
-
-    res.json({ success: true, command });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, command }));
   } catch (err) {
-    console.error('Heartbeat error:', err);
-    res.status(500).json({ error: err.message });
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
   }
 };

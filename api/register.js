@@ -1,56 +1,39 @@
 /**
  * POST /api/register
- * Register a new ESP32 device with its unique chip ID.
+ * Register a new ESP32 device.
  * Body: { deviceId: string, name?: string }
  */
-const { readDevices, writeDevices } = require('./_github');
+const store = require('./_store');
 
 module.exports = async (req, res) => {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
+  if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'Method not allowed' }));
   }
 
   try {
     const { deviceId, name } = req.body || {};
-
     if (!deviceId) {
-      return res.status(400).json({ error: 'Missing deviceId' });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Missing deviceId' }));
     }
 
-    const { devices, sha } = await readDevices();
+    store.upsertDevice(deviceId, {
+      name: name || `ESP32-${deviceId.substring(0, 6)}`,
+      status: 'online',
+      ip: req.headers['x-forwarded-for'] || '',
+      pendingCommand: null
+    });
 
-    // If device already exists, just update it
-    if (devices[deviceId]) {
-      devices[deviceId].lastSeen = Date.now();
-      devices[deviceId].status = 'online';
-      if (name) devices[deviceId].name = name;
-    } else {
-      // New device — add to the list
-      devices[deviceId] = {
-        id: deviceId,
-        name: name || `ESP32-${deviceId.substring(0, 6)}`,
-        status: 'online',
-        firstSeen: Date.now(),
-        lastSeen: Date.now(),
-        ip: req.headers['x-forwarded-for'] || '',
-        pendingCommand: null
-      };
-    }
-
-    await writeDevices(devices, sha);
-
-    res.json({ success: true, deviceId });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, deviceId }));
   } catch (err) {
-    console.error('Register error:', err);
-    res.status(500).json({ error: err.message });
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
   }
 };

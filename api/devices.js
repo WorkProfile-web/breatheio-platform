@@ -1,45 +1,42 @@
 /**
  * GET /api/devices
- * Returns all registered devices with their status.
- * Response: { devices: [...] }
+ * Returns all devices with online/offline status.
  */
-const { readDevices } = require('./_github');
+const store = require('./_store');
 
 module.exports = async (req, res) => {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'GET') {
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'Method not allowed' }));
+  }
 
   try {
-    const { devices } = await readDevices();
-
-    // Convert to array and determine online/offline
     const now = Date.now();
-    const deviceList = Object.values(devices).map(d => ({
+    const deviceList = store.getAllDevices().map(d => ({
       id: d.id,
       name: d.name,
       status: (now - d.lastSeen) < 180000 ? 'online' : 'offline',
-      // 3 min timeout
       lastSeen: d.lastSeen,
       firstSeen: d.firstSeen,
       ip: d.ip,
-      hasPendingCommand: d.pendingCommand !== null && d.pendingCommand !== undefined
+      hasPendingCommand: d.pendingCommand != null
     }));
 
-    // Sort: online first, then by name
     deviceList.sort((a, b) => {
       if (a.status === 'online' && b.status !== 'online') return -1;
       if (a.status !== 'online' && b.status === 'online') return 1;
       return a.name.localeCompare(b.name);
     });
 
-    res.json({ devices: deviceList });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ devices: deviceList }));
   } catch (err) {
-    console.error('Devices error:', err);
-    res.status(500).json({ error: err.message });
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
   }
 };
