@@ -1,0 +1,5 @@
+{
+  "name": "breatheio-dashboard",
+  "version": "1.0.0",
+  "description": "BreatheIO - Remote ESP32 device management platform"
+}
