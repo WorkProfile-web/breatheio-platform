@@ -1,61 +1,55 @@
 /**
  * GET /api/dashboard
- * Serves the BreatheIO dashboard with embedded device data.
+ * Serves device dashboard. Cards rendered server-side.
+ * JS just handles buttons + polling stats.
  */
 const store = require('./_store');
 
 module.exports = async (req, res) => {
-  // Build device data from store
   const now = Date.now();
   const allDevices = store.getAllDevices();
   const devicesJson = JSON.stringify(allDevices.map(d => ({
-    id: d.id,
-    name: d.name,
+    id: d.id, name: d.name,
     status: (now - d.lastSeen) < 180000 ? 'online' : 'offline',
-    lastSeen: d.lastSeen,
-    firstSeen: d.firstSeen,
-    ip: d.ip
+    lastSeen: d.lastSeen, firstSeen: d.firstSeen, ip: d.ip
   })));
 
-  const hasDevices = allDevices.length > 0;
-
-  // Build device cards HTML server-side
-  let cardsHtml = '';
-  if (!hasDevices) {
-    cardsHtml = '<div class="empty-state"><h2>No devices yet</h2><p>Power on your ESP32 devices and they\'ll appear here automatically.</p><p style="margin-top:8px;font-size:12px;color:#4444aa">Each device registers itself using its unique chip ID.</p></div>';
+  // Build cards on server
+  let cards = '';
+  if (allDevices.length === 0) {
+    cards = '<div class="empty-state"><h2>No devices yet</h2><p>Power on your ESP32 devices and they&apos;ll appear here automatically.</p><p style="margin-top:8px;font-size:12px;color:#4444aa">Each device registers itself using its unique chip ID.</p></div>';
   } else {
     const sorted = [...allDevices].sort((a, b) => {
-      const aOnline = (now - a.lastSeen) < 180000;
-      const bOnline = (now - b.lastSeen) < 180000;
-      if (aOnline && !bOnline) return -1;
-      if (!aOnline && bOnline) return 1;
+      const aOn = (now - a.lastSeen) < 180000, bOn = (now - b.lastSeen) < 180000;
+      if (aOn && !bOn) return -1;
+      if (!aOn && bOn) return 1;
       return (a.name || '').localeCompare(b.name || '');
     });
-
     for (const d of sorted) {
-      const online = (now - d.lastSeen) < 180000;
-      const cls = online ? 'online' : 'offline';
-      const lastSeen = timeAgo(now, d.lastSeen);
-      cardsHtml += '<div class="device-card ' + cls + '">';
-      cardsHtml += '<div class="device-info">';
-      cardsHtml += '<div class="device-name">' + esc(d.name || ('ESP32-' + d.id.substring(0, 6))) + '</div>';
-      cardsHtml += '<div class="device-id">ID: ' + esc(d.id) + '</div>';
-      cardsHtml += '<div class="device-status"><span class="dot ' + cls + '"></span>' + (online ? 'online' : 'offline') + ' <span class="last-seen">&bull; ' + lastSeen + '</span></div>';
-      cardsHtml += '</div>';
-      cardsHtml += '<div class="device-actions">';
-      cardsHtml += '<button class="btn btn-ping" data-id="' + d.id + '" data-action="ping">Ping</button>';
-      cardsHtml += '<button class="btn btn-restart" data-id="' + d.id + '" data-action="restart">Restart</button>';
-      cardsHtml += '<button class="btn btn-led-on" data-id="' + d.id + '" data-action="led_on">LED ON</button>';
-      cardsHtml += '<button class="btn btn-led-off" data-id="' + d.id + '" data-action="led_off">LED OFF</button>';
-      cardsHtml += '</div></div>';
+      const on = (now - d.lastSeen) < 180000;
+      const cls = on ? 'online' : 'offline';
+      const ls = d.lastSeen ? timeAgo(now, d.lastSeen) : 'never';
+      cards += '<div class="device-card ' + cls + '">' +
+        '<div class="device-info">' +
+        '<div class="device-name">' + esc(d.name || ('ESP32-' + d.id.substring(0, 6))) + '</div>' +
+        '<div class="device-id">ID: ' + esc(d.id) + '</div>' +
+        '<div class="device-status"><span class="dot ' + cls + '"></span>' + (on ? 'online' : 'offline') + ' <span class="last-seen">&bull; ' + ls + '</span></div>' +
+        '</div>' +
+        '<div class="device-actions">' +
+        '<button class="btn btn-ping" data-id="' + d.id + '" data-action="ping">Ping</button>' +
+        '<button class="btn btn-restart" data-id="' + d.id + '" data-action="restart">Restart</button>' +
+        '<button class="btn btn-led-on" data-id="' + d.id + '" data-action="led_on">LED ON</button>' +
+        '<button class="btn btn-led-off" data-id="' + d.id + '" data-action="led_off">LED OFF</button>' +
+        '</div></div>';
     }
   }
 
+  const online = allDevices.filter(d => (now - d.lastSeen) < 180000).length;
+  const offline = allDevices.length - online;
+
   const html = '<!DOCTYPE html>' +
-'<html lang="en">' +
-'<head>' +
-'<meta charset="UTF-8">' +
-'<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+'<html lang="en"><head>' +
+'<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
 '<title>BreatheIO - Device Dashboard</title>' +
 '<style>' +
 '*{margin:0;padding:0;box-sizing:border-box}' +
@@ -97,53 +91,44 @@ module.exports = async (req, res) => {
 '@keyframes slideIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}' +
 '.last-seen{font-size:12px;color:#5555aa}' +
 '@media(max-width:600px){.header{padding:15px}.device-card{flex-direction:column;align-items:flex-start}.device-actions{width:100%;justify-content:flex-start}}' +
-'</style>' +
-'</head><body>' +
+'</style></head><body>' +
 '<div class="header">' +
 '<div><h1>BreatheIO Platform</h1><div class="subtitle">Your ESP32 devices, anywhere</div></div>' +
-'<div class="stats">' +
-  '<div class="stat online"><div class="num" id="countOnline">' + allDevices.filter(d => (now - d.lastSeen) < 180000).length + '</div><div class="label">Online</div></div>' +
-  '<div class="stat offline"><div class="num" id="countOffline">' + allDevices.filter(d => (now - d.lastSeen) >= 180000).length + '</div><div class="label">Offline</div></div>' +
-  '<div class="stat total"><div class="num" id="countTotal">' + allDevices.length + '</div><div class="label">Total</div></div>' +
-'</div></div>' +
-'<div class="container" id="devicesContainer">' + cardsHtml + '</div>' +
+'<div class="stats"><div class="stat online"><div class="num" id="nOnline">' + online + '</div><div class="label">Online</div></div>' +
+'<div class="stat offline"><div class="num" id="nOffline">' + offline + '</div><div class="label">Offline</div></div>' +
+'<div class="stat total"><div class="num" id="nTotal">' + allDevices.length + '</div><div class="label">Total</div></div></div></div>' +
+'<div class="container" id="devicesContainer">' + cards + '</div>' +
 '<div class="toast" id="toast"></div>' +
 '<script>' +
-'var devices=' + devicesJson + ';' +
-'var container=document.getElementById("devicesContainer");' +
-'var toast=document.getElementById("toast");' +
-'var toastTimeout;' +
-'function showToast(msg,err){clearTimeout(toastTimeout);toast.textContent=msg;toast.style.borderColor=err?"#ff5252":"#2a2a4a";toast.classList.add("show");toastTimeout=setTimeout(function(){toast.classList.remove("show")},3000)}' +
+'(function(){' +
+'var con=document.getElementById("devicesContainer");' +
+'var to=document.getElementById("toast");' +
+'var tt;' +
+'function sm(m,e){clearTimeout(tt);to.textContent=m;to.style.borderColor=e?"#ff5252":"#2a2a4a";to.classList.add("show");tt=setTimeout(function(){to.classList.remove("show")},3000)}' +
 'document.addEventListener("click",function(e){' +
-  'var btn=e.target.closest(".btn");' +
-  'if(!btn)return;' +
-  'var id=btn.getAttribute("data-id");' +
-  'var action=btn.getAttribute("data-action");' +
-  'fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({deviceId:id,action})})' +
-  '.then(function(r){return r.json()})' +
-  '.then(function(d){if(d.success){showToast("Sent "+action+" to "+id.slice(0,6)+"...")}else{showToast("Error: "+d.error,true)}})' +
-  '.catch(function(){showToast("Network error",true)});' +
-'})' +
-'function render(d){' +
-  'var online=0,offline=0,html="";' +
-  'd.sort(function(a,b){var ao=(Date.now()-a.lastSeen)<180000,bo=(Date.now()-b.lastSeen)<180000;if(ao&&!bo)return-1;if(!ao&&bo)return 1;return(a.name||"").localeCompare(b.name||"")});' +
-  'for(var i=0;i<d.length;i++){' +
-    'var dv=d[i],on=(Date.now()-dv.lastSeen)<180000,cls=on?"online":"offline";' +
-    'online+=on?1:0;offline+=on?0:1;' +
-    'html+="<div class=\\"device-card "+cls+"\\"><div class=\\"device-info\\"><div class=\\"device-name\\">"+esc(dv.name)+"</div><div class=\\"device-id\\">ID: "+esc(dv.id)+"</div><div class=\\"device-status\\"><span class=\\"dot "+cls+"\\"></span>"+cls+" <span class=\\"last-seen\\">&bull; "+ago(dv.lastSeen)+"</span></div></div><div class=\\"device-actions\\"><button class=\\"btn btn-ping\\" data-id=\\""+dv.id+"\\" data-action=\\"ping\\">Ping</button><button class=\\"btn btn-restart\\" data-id=\\""+dv.id+"\\" data-action=\\"restart\\">Restart</button><button class=\\"btn btn-led-on\\" data-id=\\""+dv.id+"\\" data-action=\\"led_on\\">LED ON</button><button class=\\"btn btn-led-off\\" data-id=\\""+dv.id+"\\" data-action=\\"led_off\\">LED OFF</button></div></div>";' +
-  '}' +
-  'if(d.length===0){html="<div class=\\"empty-state\\"><h2>No devices yet</h2><p>Power on your ESP32 devices and they&apos;ll appear here automatically.</p><p style=\\"margin-top:8px;font-size:12px;color:#4444aa\\">Each device registers itself using its unique chip ID.</p></div>"}' +
-  'document.getElementById("countOnline").textContent=online;' +
-  'document.getElementById("countOffline").textContent=offline;' +
-  'document.getElementById("countTotal").textContent=d.length;' +
-  'container.innerHTML=html' +
-'}' +
-'function ago(t){var s=Math.floor((Date.now()-t)/1000);if(s<5)return"just now";if(s<60)return s+"s ago";var m=Math.floor(s/60);if(m<60)return m+"m ago";return Math.floor(m/60)+"h ago"}' +
-'function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML}' +
-'fetch("/api/devices").then(function(r){return r.json()}).then(function(d){if(d.devices){render(d.devices)}}).catch(function(){})' +
-'setInterval(function(){fetch("/api/devices").then(function(r){return r.json()}).then(function(d){if(d.devices){render(d.devices)}}).catch(function(){})},5000);' +
-'</script>' +
-'</body></html>';
+'var b=e.target.closest(".btn");' +
+'if(!b)return;' +
+'var id=b.getAttribute("data-id");' +
+'var ac=b.getAttribute("data-action");' +
+'var x=new XMLHttpRequest();' +
+'x.open("POST","/api/command");' +
+'x.setRequestHeader("Content-Type","application/json");' +
+'x.onload=function(){try{var d=JSON.parse(x.responseText);if(d.success){sm("Sent "+ac+" to "+id.slice(0,6)+"...")}else{sm("Error: "+d.error,true)}}catch(e){sm("Error",true)}};' +
+'x.onerror=function(){sm("Network error",true)};' +
+'x.send(JSON.stringify({deviceId:id,action:ac}))' +
+'});' +
+'setInterval(function(){' +
+'var x=new XMLHttpRequest();' +
+'x.open("GET","/api/devices");' +
+'x.onload=function(){try{var d=JSON.parse(x.responseText);if(!d.devices||d.devices.length===0)return;' +
+'var on=0,off=0;' +
+'for(var i=0;i<d.devices.length;i++){if((Date.now()-d.devices[i].lastSeen)<180000)on++;else off++}' +
+'document.getElementById("nOnline").textContent=on;' +
+'document.getElementById("nOffline").textContent=off;' +
+'document.getElementById("nTotal").textContent=d.devices.length' +
+'}catch(e){}};x.send()},5000);' +
+'})();' +
+'</script></body></html>';
 
   try {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -154,7 +139,6 @@ module.exports = async (req, res) => {
   }
 };
 
-// Helper: format time ago
 function timeAgo(now, t) {
   if (!t) return 'never';
   const s = Math.floor((now - t) / 1000);
@@ -165,7 +149,6 @@ function timeAgo(now, t) {
   return Math.floor(m / 60) + 'h ago';
 }
 
-// Helper: escape HTML
 function esc(s) {
   if (!s) return '';
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
