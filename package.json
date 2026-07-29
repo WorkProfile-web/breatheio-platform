@@ -1,5 +1,8 @@
 {
   "name": "breatheio-dashboard",
   "version": "1.0.0",
-  "description": "BreatheIO - Remote ESP32 device management platform"
+  "description": "BreatheIO - Remote ESP32 device management platform",
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
