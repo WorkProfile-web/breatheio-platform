@@ -1,6 +1,6 @@
 /**
  * GET /api/dashboard
- * Serves device dashboard with: live interactive command tracking, Show Secret modal, first-time setup banners.
+ * Serves device dashboard with: live interactive command tracking and secure device controls.
  */
 const store = require('./_store');
 
@@ -27,8 +27,7 @@ module.exports = async (req, res) => {
       const displayName = esc(d.name || ('ESP32-' + d.id.substring(0, 6)));
       const isNew = d.firstSeen && (now - d.firstSeen) < 900000; // <15 mins
       const newBadge = isNew ? '<span class="new-badge">🆕 NEW DEVICE</span>' : '';
-      const secretAttr = esc(d.deviceSecret || '');
-      cards += `<div class="device-card ${cls}" data-device-id="${esc(d.id)}" data-secret="${secretAttr}" data-name="${esc((d.name || '').toLowerCase())}" data-id-low="${esc(d.id.toLowerCase())}" data-ip="${esc(d.ip || '')}">
+      cards += `<div class="device-card ${cls}" data-device-id="${esc(d.id)}" data-name="${esc((d.name || '').toLowerCase())}" data-id-low="${esc(d.id.toLowerCase())}" data-ip="${esc(d.ip || '')}">
         <div class="device-info">
           <div class="device-header-line">
             <span class="device-name" id="dname-${esc(d.id)}" title="Double-click to rename">${displayName}</span>
@@ -134,7 +133,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 #pwdCancel{background:#2a2a4a;color:#aaa}
 #pwdCancel:hover{background:#3a3a5a}
 #pwdSubmit{background:linear-gradient(90deg,#00e676,#00bcd4);color:#000;font-weight:600}
-#secVal{background:#0f0f1a;border:1px dashed #00bcd4;padding:16px;border-radius:10px;font-family:monospace;font-size:22px;letter-spacing:4px;color:#00e676;margin:15px 0;word-break:break-all}
 @media(max-width:600px){.header{padding:15px}.device-card{flex-direction:column;align-items:flex-start}.device-actions{width:100%;justify-content:flex-start}}
 </style></head><body>
 <div class="header">
@@ -150,19 +148,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 <div class="container" id="devicesContainer">${cards}</div>
 <div class="no-results" id="noResults"><h3>No matching devices</h3><p>Try a different search term</p></div>
 <div class="toast" id="toast"></div>
-
-<!-- Secret Display Modal -->
-<div class="pwd-overlay" id="secOverlay">
-<div class="pwd-box" style="text-align:center">
-<div class="pwd-title">🔑 Device Secret</div>
-<div class="pwd-hint">Use this secret to confirm commands on your dashboard.</div>
-<div id="secVal">--------</div>
-<div class="pwd-btns" style="justify-content:center">
-<button id="secCopy" style="background:linear-gradient(90deg,#00e676,#00bcd4);color:#000;font-weight:600">📋 Copy Secret</button>
-<button id="secClose" style="background:#2a2a4a;color:#aaa">Close</button>
-</div>
-</div>
-</div>
 
 <!-- Secret Prompt Dialog -->
 <div class="pwd-overlay" id="pwdOverlay">
@@ -204,10 +189,6 @@ var pwdOverlay=document.getElementById("pwdOverlay");
 var pwdInput=document.getElementById("pwdInput");
 var pwdError=document.getElementById("pwdError");
 var pwdTitle=document.getElementById("pwdTitle");
-var secOverlay=document.getElementById("secOverlay");
-var secVal=document.getElementById("secVal");
-var secCopy=document.getElementById("secCopy");
-var secClose=document.getElementById("secClose");
 var cpOverlay=document.getElementById("cpOverlay");
 var cpNewInput=document.getElementById("cpNewInput");
 var cpConfirmInput=document.getElementById("cpConfirmInput");
@@ -215,20 +196,6 @@ var cpError=document.getElementById("cpError");
 
 var pwdPendingId=null,pwdPendingAc=null,pwdPendingOrig=null,pwdPendingBtn=null,pwdPendingDn=null,pwdPendingNewName=null,pwdPendingIsRename=false,pwdPendingIsChangePass=false,pwdPendingCpSecret=null;
 var activeCommandTimestamps={};
-
-// Show Secret Modal
-function showSecretModal(id){
-  var card=document.querySelector('.device-card[data-device-id="'+id+'"]');
-  var sec=(card?card.getAttribute("data-secret"):"")||"NO SECRET SET";
-  secVal.textContent=sec;
-  secOverlay.style.display="flex";
-}
-secCopy.onclick=function(){
-  navigator.clipboard.writeText(secVal.textContent);
-  secCopy.textContent="✓ Copied!";
-  setTimeout(function(){secCopy.textContent="📋 Copy Secret"},2000);
-};
-secClose.onclick=function(){secOverlay.style.display="none"};
 
 // Show secret prompt dialog
 function showPwd(id,title){
@@ -343,8 +310,8 @@ if(!b||b.disabled)return;
 var id=b.getAttribute("data-id");
 var ac=b.getAttribute("data-action");
 
+// Show Secret — sends command to print secret on ESP32 Serial Monitor ONLY
 if(ac==="show_secret"){
-  showSecretModal(id);
   doCommandWithSecret(id,ac,b.textContent,b,"");
   return;
 }
@@ -375,7 +342,11 @@ x.onload=function(){
   try{
     var d=JSON.parse(x.responseText);
     if(d.success){
-      sm('Command "'+ac+'" queued! Waiting for ESP32...');
+      if(ac==="show_secret"){
+        sm("🔒 'show_secret' sent! Secret will print to hardware Serial Monitor only.");
+      }else{
+        sm('Command "'+ac+'" queued! Waiting for ESP32...');
+      }
     }else{
       b.textContent=orig;b.disabled=false;
       if(lc)lc.innerHTML='<span class="cmd-pill error">✗ '+(d.error||"Command failed")+'</span>';
@@ -416,7 +387,6 @@ var card=document.querySelector('.device-card[data-device-id="'+dv.id+'"]');
 if(card){
   var nc=isOn?"online":"offline";
   card.className="device-card "+nc;
-  if(dv.deviceSecret) card.setAttribute("data-secret", dv.deviceSecret);
 
   var dot=document.getElementById("dot-"+dv.id);if(dot)dot.className="dot "+nc;
   var stxt=document.getElementById("stxt-"+dv.id);if(stxt)stxt.textContent=nc;
@@ -436,7 +406,7 @@ if(card){
   var activeTrack=activeCommandTimestamps[dv.id];
 
   if(activeTrack && dv.lastExecutedCommand){
-    if(dv.lastExecutedCommand.time >= activeTrack.time - 2000){
+    if(dv.lastExecutedCommand.action === activeTrack.action){
       // Command Executed Successfully on ESP32!
       if(lc) lc.innerHTML='<span class="cmd-pill executed">✅ ESP32 executed '+dv.lastExecutedCommand.action+'!</span>';
       if(activeTrack.btn){
@@ -445,7 +415,11 @@ if(card){
           setTimeout(function(){b.innerHTML=orig;b.disabled=false},2500);
         })(activeTrack.btn, activeTrack.origName);
       }
-      sm('🎉 ESP32 executed "'+dv.lastExecutedCommand.action+'" successfully!');
+      if(dv.lastExecutedCommand.action==="show_secret"){
+        sm("🔒 ESP32 received show_secret! Secret printed to USB Serial Monitor.");
+      }else{
+        sm('🎉 ESP32 executed "'+dv.lastExecutedCommand.action+'" successfully!');
+      }
       delete activeCommandTimestamps[dv.id];
     }
   } else if(!activeTrack && dv.lastExecutedCommand && lc && !lc.innerHTML){

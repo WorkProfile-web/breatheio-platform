@@ -26,7 +26,6 @@ module.exports = async (req, res) => {
       lastSeen: d.lastSeen,
       firstSeen: d.firstSeen,
       ip: d.ip,
-      deviceSecret: d.deviceSecret || '',
       lastExecutedCommand: d.lastExecutedCommand || null,
       pingResults: d.pingResults || null,
       lastPingTime: d.lastPingTime || null
