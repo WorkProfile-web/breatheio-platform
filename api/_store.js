@@ -211,9 +211,12 @@ function verifyDeviceSecret(id, secret) {
 
 async function setDeviceSecret(id, secret, isCustom = false) {
   if (devices[id]) {
+    const changed = devices[id].deviceSecret !== secret || devices[id].customSecretSet !== !!isCustom;
     devices[id].deviceSecret = secret;
     devices[id].customSecretSet = !!isCustom;
-    await upsertDevice(id, { deviceSecret: secret, customSecretSet: devices[id].customSecretSet });
+    if (changed) {
+      await persistToBlob().catch(() => {});
+    }
     return true;
   }
   return false;
