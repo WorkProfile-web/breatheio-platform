@@ -121,9 +121,16 @@ async function setPendingCommand(id, command) {
 }
 
 async function getAndClearPendingCommand(id) {
-  // Reload from Blob first — ensures commands sent from other instances are picked up
-  await reloadFromBlob();
+  // FIRST: check in-memory cache (instant, no race condition)
+  if (devices[id] && devices[id].pendingCommand != null) {
+    const cmd = devices[id].pendingCommand;
+    devices[id].pendingCommand = null;
+    await persistToBlob();  // persist the clear to Blob
+    return cmd;
+  }
 
+  // SECOND: reload from Blob (in case command was set by a different instance)
+  await reloadFromBlob();
   if (devices[id] && devices[id].pendingCommand != null) {
     const cmd = devices[id].pendingCommand;
     devices[id].pendingCommand = null;
