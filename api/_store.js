@@ -209,10 +209,11 @@ function verifyDeviceSecret(id, secret) {
   return expectedSecret === secret;
 }
 
-async function setDeviceSecret(id, secret) {
+async function setDeviceSecret(id, secret, isCustom = false) {
   if (devices[id]) {
     devices[id].deviceSecret = secret;
-    await persistToBlob();
+    devices[id].customSecretSet = !!isCustom;
+    await upsertDevice(id, { deviceSecret: secret, customSecretSet: devices[id].customSecretSet });
     return true;
   }
   return false;

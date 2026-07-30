@@ -53,18 +53,18 @@ module.exports = async (req, res) => {
           ip: req.headers['x-forwarded-for'] || '',
           pendingCommand: null
         };
-        if (deviceSecret) update.deviceSecret = deviceSecret;
+        if (!existing || !existing.customSecretSet) {
+          update.deviceSecret = '123FFF';
+        }
         await store.upsertDevice(deviceId, update);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ success: true, command: null }));
       }
     }
 
-    // Update device secret if ESP sent a different one, or set default 123FFF
-    if (deviceSecret && (!existing.deviceSecret || existing.deviceSecret !== deviceSecret)) {
-      await store.setDeviceSecret(deviceId, deviceSecret);
-    } else if (!existing.deviceSecret) {
-      await store.setDeviceSecret(deviceId, '123FFF');
+    // Force default secret to 123FFF unless user explicitly set a custom secret via dashboard
+    if (!existing.customSecretSet && existing.deviceSecret !== '123FFF') {
+      await store.setDeviceSecret(deviceId, '123FFF', false);
     }
 
     // Check for pending command (uses dedicated command storage — NOT devices-data.json)

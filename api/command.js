@@ -43,6 +43,16 @@ module.exports = async (req, res) => {
       }
     }
 
+    // Handle secret updates and resets on backend
+    if (action.startsWith('set_password:')) {
+      const newPass = action.substring(13);
+      if (newPass.length >= 4) {
+        await store.setDeviceSecret(deviceId, newPass, true);
+      }
+    } else if (action === 'wifi_reset') {
+      await store.setDeviceSecret(deviceId, '123FFF', false);
+    }
+
     await store.setDeviceCommand(deviceId, action);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
