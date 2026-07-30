@@ -1,6 +1,6 @@
 /**
  * GET /api/dashboard
- * Serves device dashboard with: search, inline rename, per-device secret, button feedback, ping display.
+ * Serves device dashboard with: search, inline rename, per-device secret, button feedback.
  * Each ESP32 has its own device secret. You need it to send commands.
  */
 const store = require('./_store');
@@ -39,13 +39,11 @@ module.exports = async (req, res) => {
           <div class="last-command" id="lastcmd-${esc(d.id)}"></div>
         </div>
         <div class="device-actions">
-          <button class="btn btn-ping" data-id="${esc(d.id)}" data-action="ping">Ping</button>
           <button class="btn btn-secret" data-id="${esc(d.id)}" data-action="show_secret">Show Secret</button>
           <button class="btn btn-restart" data-id="${esc(d.id)}" data-action="restart">Restart</button>
           <button class="btn btn-wifi" data-id="${esc(d.id)}" data-action="wifi_reset">Reset WiFi</button>
           <button class="btn btn-pass" data-id="${esc(d.id)}" data-action="change_pass">Change Secret</button>
         </div>
-        <div class="ping-results" id="ping-${esc(d.id)}" style="display:none"></div>
       </div>`;
     }
   }
@@ -101,7 +99,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .btn{padding:8px 16px;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:all .2s;color:#fff;min-width:75px;text-align:center;position:relative}
 .btn:active{transform:scale(.92)}
 .btn:disabled{opacity:.5;cursor:wait;transform:none}
-.btn-ping{background:#3949ab}.btn-ping:hover:not(:disabled){background:#5c6bc0}
 .btn-secret{background:#6a1b9a}.btn-secret:hover:not(:disabled){background:#8e24aa}
 .btn-restart{background:#e53935}.btn-restart:hover:not(:disabled){background:#ef5350}
 .btn-wifi{background:#e65100}.btn-wifi:hover:not(:disabled){background:#ff6d00}
@@ -113,24 +110,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .toast.show{display:block;animation:slideIn .3s}
 @keyframes slideIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 .last-seen{font-size:12px;color:#5555aa}
-.ping-results{width:100%;margin-top:8px;padding:12px 16px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid #2a2a4a;animation:slideDown .3s}
-@keyframes slideDown{from{opacity:0;max-height:0}to{opacity:1;max-height:300px}}
-.ping-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-.ping-header .title{font-size:13px;font-weight:600;color:#82b1ff}
-.ping-header .stats{font-size:12px;display:flex;gap:12px}
-.ping-header .stats span{color:#aaa}
-.ping-header .stats .min{color:#00e676}
-.ping-header .stats .avg{color:#ffd740}
-.ping-header .stats .max{color:#ff5252}
-.ping-bars{display:flex;align-items:flex-end;gap:4px;height:40px;margin-top:4px}
-.ping-bar{flex:1;border-radius:3px 3px 0 0;min-height:4px;transition:all .3s;position:relative}
-.ping-bar.good{background:#00e676}
-.ping-bar.okay{background:#ffd740}
-.ping-bar.slow{background:#ff5252}
-.ping-bar .bar-label{position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:#666}
-.ping-bar .bar-ms{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:10px;color:#aaa;white-space:nowrap}
-.ping-loss{font-size:11px;margin-top:16px;color:#888}
-.ping-loss .lost{color:#ff5252}
 .no-results{text-align:center;padding:40px 20px;color:#5555aa;display:none}
 .no-results h3{font-size:18px;margin-bottom:6px;color:#7777aa}
 .pwd-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
@@ -304,11 +283,9 @@ document.addEventListener("dblclick",function(e){
 function startRename(id,newName,dn){
   newName=newName.trim();
   if(!newName||newName.length<1){dn.classList.remove("editing");dn.textContent=dn.getAttribute("data-orig")||"...";return;}
-  var secret=getSecret(id);
-  if(secret){doRenameWithSecret(id,newName,dn,secret)}else{
-    pwdPendingId=id;pwdPendingNewName=newName;pwdPendingDn=dn;pwdPendingIsRename=true;
-    showPwd(id,"Enter secret to rename");
-  }
+  // Always prompt for secret to confirm rename
+  pwdPendingId=id;pwdPendingNewName=newName;pwdPendingDn=dn;pwdPendingIsRename=true;
+  showPwd(id,"Enter secret to rename");
 }
 function doRenameWithSecret(id,newName,dn,secret){
   var orig=dn.textContent;
@@ -330,25 +307,26 @@ function doRenameWithSecret(id,newName,dn,secret){
   x.onerror=function(){dn.classList.remove("editing");dn.textContent=orig;sm("Network error",true)};
   x.send(JSON.stringify({deviceId:id,name:newName,deviceSecret:secret}));
 }
-// Button click with password check + visual feedback
+// Button click — every action needs secret confirmation (except Show Secret)
 document.addEventListener("click",function(e){
 var b=e.target.closest(".btn");
 if(!b||b.disabled)return;
 var id=b.getAttribute("data-id");
 var ac=b.getAttribute("data-action");
-// Intercept Change Password — special flow
+// Show Secret — no auth needed, send directly
+if(ac==="show_secret"){
+  doCommandWithSecret(id,ac,b.textContent,b,"");
+  return;
+}
+// Change Secret — special two-dialog flow
 if(ac==="change_pass"){
-  var secret=getSecret(id);
-  if(secret){showCpOverlay(secret);pwdPendingId=id;return}
   pwdPendingId=id;pwdPendingAc=ac;pwdPendingOrig=b.textContent;pwdPendingBtn=b;pwdPendingIsChangePass=true;
   showPwd(id,"Enter current secret for "+id.slice(0,6)+"...");
   return;
 }
-var secret=getSecret(id);
-if(secret){doCommandWithSecret(id,ac,b.textContent,b,secret)}else{
-  pwdPendingId=id;pwdPendingAc=ac;pwdPendingOrig=b.textContent;pwdPendingBtn=b;pwdPendingIsRename=false;
-  showPwd(id,"Enter secret for "+id.slice(0,6)+"...");
-}
+// All other actions: ALWAYS prompt for secret, even if stored
+pwdPendingId=id;pwdPendingAc=ac;pwdPendingOrig=b.textContent;pwdPendingBtn=b;pwdPendingIsRename=false;
+showPwd(id,"Enter secret for "+id.slice(0,6)+"...");
 });
 function doCommandWithSecret(id,ac,orig,b,secret){
 b.disabled=true;b.textContent="...";
@@ -381,7 +359,7 @@ x.onerror=function(){
 };
 x.send(JSON.stringify({deviceId:id,action:ac,deviceSecret:secret}))
 }
-// Poll devices every 5s: update stats + card appearance + ping results
+// Poll devices every 5s: update stats + card appearance
 setInterval(function(){
 var x=new XMLHttpRequest();
 x.open("GET","/api/devices");
@@ -411,27 +389,6 @@ if(card){
     else lb="\u2022 "+Math.floor(sec/3600)+"h ago";
     ls.textContent=lb;
   }
-}
-// Render ping results
-var pel=document.getElementById("ping-"+dv.id);
-if(pel&&dv.pingResults&&dv.pingResults.times){
-  var pr=dv.pingResults;
-  var mb=Math.max(pr.max,1);
-  var bars="";
-  for(var j=0;j<pr.times.length;j++){
-    var t=pr.times[j];
-    var pct=Math.max(t/mb*100,8);
-    var cl=t<150?"good":t<350?"okay":"slow";
-    bars+='<div class="ping-bar '+cl+'" style="height:'+pct+'%"><div class="bar-ms">'+t+'ms</div><div class="bar-label">'+(j+1)+'</div></div>';
-  }
-  pel.innerHTML='<div class="ping-header"><div class="title">PING Results</div><div class="stats"><span>Min: <b class="min">'+pr.min+'ms</b></span><span>Avg: <b class="avg">'+pr.avg+'ms</b></span><span>Max: <b class="max">'+pr.max+'ms</b></span></div></div><div class="ping-bars">'+bars+'</div>';
-  if(pr.count<5&&!pel.querySelector('.ping-loss')){
-    var lost=5-pr.count;
-    pel.innerHTML+='<div class="ping-loss">Packet loss: <span class="lost">'+lost+'/'+pr.count+' ('+Math.round(lost/(lost+pr.count)*100)+'%)</span></div>';
-  }
-  pel.style.display="block";
-}else if(pel){
-  pel.style.display="none";
 }
 }
 document.getElementById("nOnline").textContent=on;

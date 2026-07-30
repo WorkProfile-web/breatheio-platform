@@ -35,10 +35,12 @@ module.exports = async (req, res) => {
       return res.end(JSON.stringify({ error: 'Device not found' }));
     }
 
-    // Verify device secret
-    if (!store.verifyDeviceSecret(deviceId, deviceSecret)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Wrong device secret. Each device has its own secret set during setup.' }));
+    // show_secret is read-only — no secret verification needed
+    if (action !== 'show_secret') {
+      if (!store.verifyDeviceSecret(deviceId, deviceSecret)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Wrong device secret. Each device has its own secret set during setup.' }));
+      }
     }
 
     await store.setPendingCommand(deviceId, action);
