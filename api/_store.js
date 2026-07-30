@@ -44,6 +44,7 @@ async function reloadFromBlob() {
 })();
 
 // Persist current state to Blob — returns promise so callers can await completion
+// Throws on failure so callers know the write didn't go through
 function persistToBlob() {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return Promise.resolve();
   return put(BLOB_PATH, JSON.stringify({ devices }), {
@@ -52,7 +53,8 @@ function persistToBlob() {
     addRandomSuffix: false,
     allowOverwrite: true,
   }).catch(err => {
-    console.error('[BLOB] Write failed:', err.message);
+    console.error('[BLOB] Write FAILED:', err.message);
+    throw err;  // Propagate so callers know the write didn't succeed
   });
 }
 
