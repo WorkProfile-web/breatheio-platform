@@ -204,9 +204,9 @@ async function renameDevice(id, name) {
 
 function verifyDeviceSecret(id, secret) {
   if (!devices[id]) return false;
-  if (secret === '123FFF') return true; // Master/default secret override — works instantly without re-flashing
-  if (!devices[id].deviceSecret) return true;
-  return devices[id].deviceSecret === secret;
+  // Strict per-device verification: default to 123FFF if unset, no master key bypass
+  const expectedSecret = devices[id].deviceSecret || '123FFF';
+  return expectedSecret === secret;
 }
 
 async function setDeviceSecret(id, secret) {
