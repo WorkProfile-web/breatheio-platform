@@ -18,7 +18,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { deviceId } = req.body || {};
+    const { deviceId, pingResults } = req.body || {};
     if (!deviceId) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Missing deviceId' }));
@@ -40,11 +40,20 @@ module.exports = async (req, res) => {
     // Check for pending command (reloads from Blob to catch cross-instance commands)
     const command = await store.getAndClearPendingCommand(deviceId);
 
-    // Update status
-    store.upsertDevice(deviceId, {
+    // Prepare update data
+    const updateData = {
       status: 'online',
       ip: req.headers['x-forwarded-for'] || ''
-    });
+    };
+
+    // Store ping results if ESP32 sent them
+    if (pingResults) {
+      updateData.pingResults = pingResults;
+      updateData.lastPingTime = Date.now();
+    }
+
+    // Update status
+    store.upsertDevice(deviceId, updateData);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, command }));

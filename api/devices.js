@@ -26,7 +26,9 @@ module.exports = async (req, res) => {
       lastSeen: d.lastSeen,
       firstSeen: d.firstSeen,
       ip: d.ip,
-      hasPendingCommand: d.pendingCommand != null
+      hasPendingCommand: d.pendingCommand != null,
+      pingResults: d.pingResults || null,
+      lastPingTime: d.lastPingTime || null
     }));
 
     deviceList.sort((a, b) => {
