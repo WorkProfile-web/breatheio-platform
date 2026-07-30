@@ -1,8 +1,8 @@
 /**
- * POST /api/command
- * Send a command to a specific device.
- * Body: { deviceId: string, action: string }
- * Actions: "restart", "ping", "led_on", "led_off", or custom
+ * POST /api/rename
+ * Rename a device from the dashboard.
+ * Body: { deviceId: string, name: string, pin?: string }
+ * Response: { success: true } or { error: '...' }
  */
 const store = require('./_store');
 
@@ -27,7 +27,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { deviceId, action } = req.body || {};
+    const { deviceId, name } = req.body || {};
 
     // Check PIN: body > cookie > env
     const pin = req.body.pin || parsePinCookie(req.headers.cookie);
@@ -36,21 +36,25 @@ module.exports = async (req, res) => {
       return res.end(JSON.stringify({ error: 'Invalid PIN' }));
     }
 
-    if (!deviceId || !action) {
+    if (!deviceId || !name) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Missing deviceId or action' }));
+      return res.end(JSON.stringify({ error: 'Missing deviceId or name' }));
     }
 
-    const device = store.getDevice(deviceId);
-    if (!device) {
+    const cleaned = name.trim().substring(0, 32);
+    if (cleaned.length < 1) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Name cannot be empty' }));
+    }
+
+    const ok = store.renameDevice(deviceId, cleaned);
+    if (!ok) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Device not found' }));
     }
 
-    store.setPendingCommand(deviceId, action);
-
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, message: `Command "${action}" sent to ${deviceId.substring(0, 6)}...` }));
+    res.end(JSON.stringify({ success: true, name: cleaned }));
   } catch (err) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message }));

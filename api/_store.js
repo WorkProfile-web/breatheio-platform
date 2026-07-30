@@ -109,6 +109,21 @@ function getOnlineCount(timeoutMs = 180000) {
   return { online, offline, total: Object.keys(devices).length };
 }
 
+function renameDevice(id, name) {
+  if (devices[id]) {
+    devices[id].name = name;
+    persistToBlob();
+    return true;
+  }
+  return false;
+}
+
+function checkPin(pin) {
+  const expected = process.env.DASHBOARD_PIN;
+  if (!expected) return true; // No PIN set = no auth required
+  return pin === expected;
+}
+
 module.exports = {
   getAll,
   getDevice,
@@ -118,4 +133,6 @@ module.exports = {
   getAllDevices,
   getOnlineCount,
   reloadFromBlob,
+  renameDevice,
+  checkPin,
 };
