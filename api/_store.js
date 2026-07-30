@@ -1,101 +1,100 @@
 /**
- * Vercel Blob device storage.
- * 
- * In-memory cache backed by Vercel Blob for persistence across instances.
- * No new accounts. No credit cards. Uses your existing Vercel Storage.
- * 
- * On writes -> updates memory cache + persists to Blob.
- * On reads -> instant from memory cache.
- * On cold start -> loads from Blob in background.
+ * GitHub Gist Device Storage Provider.
+ * Zero credit cards. Zero monthly request limits (120,000 requests/day).
+ * Stores devices and commands inside a secret GitHub Gist.
  */
 
-const { put, head, del } = require('@vercel/blob');
-
-const BLOB_PATH = 'devices-data.json';
+const GIST_ID = process.env.GITHUB_GIST_ID;
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 // In-memory cache
 let devices = {};
+let pendingCommands = {};
 
-// Reload devices from Vercel Blob into the in-memory cache
-async function reloadFromBlob() {
+// Helper: fetch Gist files from GitHub API
+async function getGistData() {
+  if (!GIST_ID || !GITHUB_TOKEN) return null;
   try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      console.log('[BLOB] reloadFromBlob: NO TOKEN');
-      return;
-    }
-    const info = await head(BLOB_PATH).catch(err => {
-      console.log('[BLOB] head() failed:', err.message);
-      return null;
-    });
-    if (!info) {
-      console.log('[BLOB] reloadFromBlob: head returned null, blob may not exist yet');
-      return;
-    }
-    console.log('[BLOB] head() OK, url length:', info.url.length);
-    const cacheBusterUrl = info.url + (info.url.includes('?') ? '&' : '?') + 't=' + Date.now();
-    const resp = await fetch(cacheBusterUrl, {
-      headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN },
+    const url = `https://api.github.com/gists/${GIST_ID}?t=${Date.now()}`;
+    const resp = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'BreatheIO-Platform'
+      },
       cache: 'no-store'
     });
-    console.log('[BLOB] fetch status:', resp.status, resp.statusText);
     if (resp.ok) {
-      const data = await resp.json();
-      const count = data && data.devices ? Object.keys(data.devices).length : 0;
-      console.log('[BLOB] Loaded', count, 'devices from storage');
-      if (data && data.devices) {
-        devices = data.devices;
-      }
-    } else {
-      console.log('[BLOB] fetch NOT OK:', resp.status, resp.statusText);
+      const gist = await resp.json();
+      return gist.files || {};
     }
   } catch (e) {
-    console.log('[BLOB] reloadFromBlob ERROR:', e.message);
-  }
-}
-
-// Load from Vercel Blob on startup
-(async function init() {
-  await reloadFromBlob();
-  const count = Object.keys(devices).length;
-  if (count > 0) console.log('[BLOB] Loaded ' + count + ' devices from storage');
-})();
-
-// Directly read a single device from Blob without touching the in-memory cache
-// Used as a fallback when reloadFromBlob() fails on cold start
-async function readDeviceFromBlob(id) {
-  try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) return null;
-    const info = await head(BLOB_PATH).catch(() => null);
-    if (!info) return null;
-    const cacheBusterUrl = info.url + (info.url.includes('?') ? '&' : '?') + 't=' + Date.now();
-    const resp = await fetch(cacheBusterUrl, {
-      headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN },
-      cache: 'no-store'
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    if (data && data.devices && data.devices[id]) {
-      return data.devices[id];
-    }
-  } catch (e) {
-    console.log('[BLOB] readDeviceFromBlob error:', e.message);
+    console.error('[GIST] Fetch error:', e.message);
   }
   return null;
 }
 
-// Persist current state to Blob — returns promise so callers can await completion
-// Throws on failure so callers know the write didn't go through
+// Helper: patch files inside GitHub Gist
+async function patchGistFiles(filesObject) {
+  if (!GIST_ID || !GITHUB_TOKEN) return false;
+  try {
+    const url = `https://api.github.com/gists/${GIST_ID}`;
+    const resp = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'BreatheIO-Platform'
+      },
+      body: JSON.stringify({ files: filesObject })
+    });
+    return resp.ok;
+  } catch (e) {
+    console.error('[GIST] Patch error:', e.message);
+    return false;
+  }
+}
+
+// Reload devices from Gist into the in-memory cache
+async function reloadFromBlob() {
+  const files = await getGistData();
+  if (files && files['devices-data.json']) {
+    try {
+      const data = JSON.parse(files['devices-data.json'].content);
+      if (data && data.devices) {
+        devices = data.devices;
+      }
+    } catch (e) {}
+  }
+}
+
+// Load from Gist on startup
+(async function init() {
+  await reloadFromBlob();
+  const count = Object.keys(devices).length;
+  if (count > 0) console.log('[GIST] Loaded ' + count + ' devices from storage');
+})();
+
+// Directly read a single device from Gist without touching in-memory cache
+async function readDeviceFromBlob(id) {
+  const files = await getGistData();
+  if (files && files['devices-data.json']) {
+    try {
+      const data = JSON.parse(files['devices-data.json'].content);
+      return (data && data.devices && data.devices[id]) || null;
+    } catch (e) {}
+  }
+  return null;
+}
+
+// Persist current state to Gist
 function persistToBlob() {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return Promise.resolve();
-  return put(BLOB_PATH, JSON.stringify({ devices }), {
-    access: 'private',
-    contentType: 'application/json',
-    cacheControlMaxAge: 0,
-    addRandomSuffix: false,
-    allowOverwrite: true,
-  }).catch(err => {
-    console.error('[BLOB] Write FAILED:', err.message);
-    throw err;  // Propagate so callers know the write didn't succeed
+  if (!GIST_ID || !GITHUB_TOKEN) return Promise.resolve();
+  return patchGistFiles({
+    'devices-data.json': {
+      content: JSON.stringify({ devices }, null, 2)
+    }
   });
 }
 
@@ -107,83 +106,65 @@ function getDevice(id) {
   return devices[id] || null;
 }
 
+// In-memory status update — only patches Gist on structural changes (new device, name/secret change)
 async function upsertDevice(id, data) {
-  if (!devices[id]) {
+  const isNew = !devices[id];
+  if (isNew) {
     devices[id] = { id, firstSeen: Date.now() };
   }
+
+  let structuralChange = isNew;
+  for (const k in data) {
+    if (k !== 'lastSeen' && k !== 'status' && devices[id][k] !== data[k]) {
+      structuralChange = true;
+      break;
+    }
+  }
+
   Object.assign(devices[id], data, { lastSeen: Date.now() });
-  await persistToBlob();
+
+  if (structuralChange) {
+    await persistToBlob().catch(() => {});
+  }
   return devices[id];
 }
-
-// ============================================================
-// SEPARATE command storage — NOT in devices-data.json
-// Uses dedicated Blob files (cmd-{deviceId}.json) per device
-// This prevents device status updates from overwriting commands
-// ============================================================
-
-// In-memory command cache (separate from devices)
-let pendingCommands = {};
 
 // Set a pending command for a device
 async function setDeviceCommand(deviceId, command) {
   pendingCommands[deviceId] = command;
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    const cmdPath = 'cmd-' + deviceId + '.json';
-    await put(cmdPath, JSON.stringify({ command, ts: Date.now() }), {
-      access: 'private',
-      contentType: 'application/json',
-      cacheControlMaxAge: 0,
-      addRandomSuffix: false,
-      allowOverwrite: true,
-    }).catch(err => {
-      console.error('[CMD] Write FAILED:', err.message);
-      throw err;
-    });
-  }
+  const fileName = `cmd-${deviceId}.json`;
+  await patchGistFiles({
+    [fileName]: {
+      content: JSON.stringify({ command, ts: Date.now() })
+    }
+  });
 }
 
 // Get and clear a pending command for a device
 async function getAndClearDeviceCommand(deviceId) {
-  // FIRST: check in-memory cache
+  const fileName = `cmd-${deviceId}.json`;
+
+  // 1. FIRST: check in-memory cache
   if (pendingCommands[deviceId] != null) {
     const cmd = pendingCommands[deviceId];
     delete pendingCommands[deviceId];
-    // Delete Blob file to prevent cross-instance duplicate delivery
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      const cmdPath = 'cmd-' + deviceId + '.json';
-      const info = await head(cmdPath).catch(() => null);
-      if (info) {
-        await del(info.url).catch(() => {});
-      }
-    }
+    // Delete command file from Gist to prevent duplicate cross-instance delivery
+    await patchGistFiles({ [fileName]: null }).catch(() => {});
     return cmd;
   }
 
-  // SECOND: check dedicated Blob file (for cross-instance delivery)
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  // 2. SECOND: check dedicated Gist file (cross-instance delivery)
+  const files = await getGistData();
+  if (files && files[fileName] && files[fileName].content) {
     try {
-      const cmdPath = 'cmd-' + deviceId + '.json';
-      const info = await head(cmdPath).catch(() => null);
-      if (info) {
-        const cacheBusterUrl = info.url + (info.url.includes('?') ? '&' : '?') + 't=' + Date.now();
-        const resp = await fetch(cacheBusterUrl, {
-          headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN },
-          cache: 'no-store'
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          if (data && data.command != null) {
-            const cmd = data.command;
-            // Delete blob file instantly upon consumption to avoid CDN duplicates
-            await del(info.url).catch(() => {});
-            return cmd;
-          }
-        }
+      const data = JSON.parse(files[fileName].content);
+      if (data && data.command != null) {
+        const cmd = data.command;
+        // Delete command file from Gist immediately upon consumption
+        await patchGistFiles({ [fileName]: null }).catch(() => {});
+        return cmd;
       }
-    } catch (e) {
-      console.log('[CMD] Blob read error:', e.message);
-    }
+    } catch (e) {}
   }
 
   return null;
@@ -214,7 +195,7 @@ async function renameDevice(id, name) {
 
 function verifyDeviceSecret(id, secret) {
   if (!devices[id]) return false;
-  if (!devices[id].deviceSecret) return true; // No secret set = legacy device, allow
+  if (!devices[id].deviceSecret) return true;
   return devices[id].deviceSecret === secret;
 }
 

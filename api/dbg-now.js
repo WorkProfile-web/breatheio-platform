@@ -1,14 +1,14 @@
 /**
  * GET /api/dbg-now?deviceId=XXXX
- * Debug endpoint — shows the EXACT current state:
+ * Debug endpoint — shows the EXACT current GitHub Gist state:
  * - What's in server memory?
- * - What's in Blob?
+ * - What's in GitHub Gist DB?
  * - What's the pendingCommand?
  */
 const store = require('./_store');
-const { head } = require('@vercel/blob');
 
-const BLOB_PATH = 'devices-data.json';
+const GIST_ID = process.env.GITHUB_GIST_ID;
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -22,11 +22,12 @@ module.exports = async (req, res) => {
   const result = {
     deviceId,
     memory: null,
-    blob: null,
+    gist: null,
     commandFile: null,
     env: {
-      hasToken: !!process.env.BLOB_READ_WRITE_TOKEN,
-      tokenLength: process.env.BLOB_READ_WRITE_TOKEN ? process.env.BLOB_READ_WRITE_TOKEN.length : 0
+      hasGistId: !!GIST_ID,
+      hasGithubToken: !!GITHUB_TOKEN,
+      gistIdLength: GIST_ID ? GIST_ID.length : 0
     }
   };
 
@@ -36,7 +37,6 @@ module.exports = async (req, res) => {
     result.memory = {
       name: memDevice.name,
       status: memDevice.status,
-      pendingCommand: memDevice.pendingCommand || null,
       hasDeviceSecret: !!memDevice.deviceSecret,
       lastSeen: memDevice.lastSeen
     };
@@ -44,66 +44,54 @@ module.exports = async (req, res) => {
     result.memory = 'NOT FOUND in memory';
   }
 
-  // 2. Check Blob directly
+  // 2. Check GitHub Gist directly
   try {
-    const blobInfo = await head(BLOB_PATH).catch(e => {
-      result.blob = 'head() failed: ' + e.message;
-      return null;
-    });
-    if (blobInfo) {
-      const resp = await fetch(blobInfo.url, {
-        headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
-      }).catch(e => {
-        result.blob = 'fetch() failed: ' + e.message;
-        return null;
+    if (GIST_ID && GITHUB_TOKEN) {
+      const resp = await fetch(`https://api.github.com/gists/${GIST_ID}?t=${Date.now()}`, {
+        headers: {
+          'Authorization': `Bearer ${GITHUB_TOKEN}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'BreatheIO-Platform'
+        },
+        cache: 'no-store'
       });
-      if (resp && resp.ok) {
-        const data = await resp.json();
-        if (data && data.devices) {
-          const blobDevice = data.devices[deviceId];
-          if (blobDevice) {
-            result.blob = {
-              name: blobDevice.name,
-              status: blobDevice.status,
-              pendingCommand: blobDevice.pendingCommand || null,
-              hasDeviceSecret: !!blobDevice.deviceSecret,
-              lastSeen: blobDevice.lastSeen
+      if (resp.ok) {
+        const gist = await resp.json();
+        const files = gist.files || {};
+        if (files['devices-data.json'] && files['devices-data.json'].content) {
+          const data = JSON.parse(files['devices-data.json'].content);
+          if (data && data.devices && data.devices[deviceId]) {
+            const dev = data.devices[deviceId];
+            result.gist = {
+              name: dev.name,
+              status: dev.status,
+              hasDeviceSecret: !!dev.deviceSecret,
+              lastSeen: dev.lastSeen
             };
           } else {
-            result.blob = 'Device NOT FOUND in Blob';
+            result.gist = 'Device NOT FOUND in Gist';
           }
-          result.blobAllDeviceCount = Object.keys(data.devices).length;
+          result.gistAllDeviceCount = data && data.devices ? Object.keys(data.devices).length : 0;
         } else {
-          result.blob = 'Blob has no "devices" key';
-          result.blobRaw = JSON.stringify(data).substring(0, 200);
+          result.gist = 'Gist missing "devices-data.json" file';
         }
-      } else if (resp) {
-        result.blob = 'fetch status: ' + resp.status;
-      }
-    }
-  } catch (e) {
-    result.blob = 'Error: ' + e.message;
-  }
 
-  // 3. Check for pending command file
-  try {
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      const cmdPath = 'cmd-' + deviceId + '.json';
-      const cmdInfo = await head(cmdPath).catch(() => null);
-      if (cmdInfo) {
-        const cmdResp = await fetch(cmdInfo.url, {
-          headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
-        });
-        if (cmdResp.ok) {
-          const cmdData = await cmdResp.json();
-          result.commandFile = cmdData;
+        const cmdFileName = `cmd-${deviceId}.json`;
+        if (files[cmdFileName] && files[cmdFileName].content) {
+          try {
+            result.commandFile = JSON.parse(files[cmdFileName].content);
+          } catch (e) {
+            result.commandFile = files[cmdFileName].content;
+          }
+        } else {
+          result.commandFile = 'No pending command file in Gist';
         }
       } else {
-        result.commandFile = 'No command file found';
+        result.gist = `GitHub API fetch failed: HTTP ${resp.status}`;
       }
     }
   } catch (e) {
-    result.commandFile = 'Error: ' + e.message;
+    result.gist = 'Error: ' + e.message;
   }
 
   res.end(JSON.stringify(result, null, 2));
