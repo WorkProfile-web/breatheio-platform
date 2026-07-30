@@ -15,13 +15,13 @@ module.exports = async (req, res) => {
     cards = '<div class="empty-state" id="emptyState"><h2>No devices connected</h2><p>Power on your ESP32 device and connect it to Wi-Fi via <b>BreatheIO-XXXX</b> hotspot.<br>It will automatically appear here once online.</p></div>';
   } else {
     const sorted = [...allDevices].sort((a, b) => {
-      const aOn = (now - a.lastSeen) < 35000, bOn = (now - b.lastSeen) < 35000;
+      const aOn = (now - a.lastSeen) < 60000, bOn = (now - b.lastSeen) < 60000;
       if (aOn && !bOn) return -1;
       if (!aOn && bOn) return 1;
       return (a.name || '').localeCompare(b.name || '');
     });
     for (const d of sorted) {
-      const on = (now - d.lastSeen) < 35000;
+      const on = (now - d.lastSeen) < 60000;
       const cls = on ? 'online' : 'offline';
       const ls = d.lastSeen ? timeAgo(now, d.lastSeen) : 'never';
       const displayName = esc(d.name || ('ESP32-' + d.id.substring(0, 6)));
@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
     }
   }
 
-  const online = allDevices.filter(d => (now - d.lastSeen) < 35000).length;
+  const online = allDevices.filter(d => (now - d.lastSeen) < 60000).length;
   const offline = allDevices.length - online;
 
   const html = `<!DOCTYPE html>
@@ -380,7 +380,7 @@ var on=0,off=0;
 for(var i=0;i<d.devices.length;i++){
 var dv=d.devices[i];
 var now=Date.now();
-var isOn=(now-dv.lastSeen)<35000;
+var isOn=(now-dv.lastSeen)<60000;
 if(isOn)on++;else off++;
 
 var card=document.querySelector('.device-card[data-device-id="'+dv.id+'"]');
