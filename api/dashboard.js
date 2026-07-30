@@ -45,6 +45,7 @@ module.exports = async (req, res) => {
           <button class="btn btn-wifi" data-id="${esc(d.id)}" data-action="wifi_reset">Reset WiFi</button>
           <button class="btn btn-led-on" data-id="${esc(d.id)}" data-action="led_on">LED ON</button>
           <button class="btn btn-led-off" data-id="${esc(d.id)}" data-action="led_off">LED OFF</button>
+          <button class="btn btn-pass" data-id="${esc(d.id)}" data-action="change_pass">Change Pass</button>
         </div>
         <div class="ping-results" id="ping-${esc(d.id)}" style="display:none"></div>
       </div>`;
@@ -108,6 +109,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .btn-wifi{background:#e65100}.btn-wifi:hover:not(:disabled){background:#ff6d00}
 .btn-led-on{background:#2e7d32}.btn-led-on:hover:not(:disabled){background:#43a047}
 .btn-led-off{background:#6d4c41}.btn-led-off:hover:not(:disabled){background:#8d6e63}
+.btn-pass{background:#00838f}.btn-pass:hover:not(:disabled){background:#00acc1}
 .empty-state{text-align:center;padding:80px 20px;color:#6666aa}
 .empty-state h2{font-size:22px;margin-bottom:10px;color:#8888bb}
 .empty-state p{font-size:14px;line-height:1.6}
@@ -178,6 +180,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 </div>
 </div>
 </div>
+<!-- Change Password overlay -->
+<div class="pwd-overlay" id="cpOverlay">
+<div class="pwd-box">
+<div class="pwd-title">Set new device password</div>
+<div class="pwd-hint">Enter a new password for this device (4-32 characters).<br>The old password will stop working immediately.</div>
+<input type="password" id="cpNewInput" maxlength="32" placeholder="New password">
+<input type="password" id="cpConfirmInput" maxlength="32" placeholder="Confirm new password" style="margin-top:10px">
+<div class="pwd-error" id="cpError" style="margin-top:10px">Passwords don&apos;t match or too short</div>
+<div class="pwd-btns">
+<button id="cpCancel">Cancel</button>
+<button id="cpSubmit" style="background:linear-gradient(90deg,#00e676,#00bcd4);color:#000;font-weight:600">Change Password</button>
+</div>
+</div>
+</div>
 <script>
 (function(){
 var to=document.getElementById("toast");
@@ -187,7 +203,11 @@ var pwdOverlay=document.getElementById("pwdOverlay");
 var pwdInput=document.getElementById("pwdInput");
 var pwdError=document.getElementById("pwdError");
 var pwdTitle=document.getElementById("pwdTitle");
-var pwdPendingId=null,pwdPendingAc=null,pwdPendingOrig=null,pwdPendingBtn=null,pwdPendingDn=null,pwdPendingNewName=null,pwdPendingIsRename=false;
+var cpOverlay=document.getElementById("cpOverlay");
+var cpNewInput=document.getElementById("cpNewInput");
+var cpConfirmInput=document.getElementById("cpConfirmInput");
+var cpError=document.getElementById("cpError");
+var pwdPendingId=null,pwdPendingAc=null,pwdPendingOrig=null,pwdPendingBtn=null,pwdPendingDn=null,pwdPendingNewName=null,pwdPendingIsRename=false,pwdPendingIsChangePass=false,pwdPendingCpSecret=null;
 // Get stored secret for a device
 function getSecret(id){try{return sessionStorage.getItem("bio_secret_"+id)}catch(e){return null}}
 function setSecret(id,s){try{sessionStorage.setItem("bio_secret_"+id,s)}catch(e){}}
@@ -206,10 +226,46 @@ pwdSubmit.onclick=function(){
   var s=pwdInput.value.trim();
   if(!s)return;
   pwdOverlay.style.display="none";
-  if(pwdPendingIsRename){doRenameWithSecret(pwdPendingId,pwdPendingNewName,pwdPendingDn,s)}else{doCommandWithSecret(pwdPendingId,pwdPendingAc,pwdPendingOrig,pwdPendingBtn,s)}
+  if(pwdPendingIsRename){doRenameWithSecret(pwdPendingId,pwdPendingNewName,pwdPendingDn,s);clearPending()}
+  else if(pwdPendingIsChangePass){showCpOverlay(s)}
+  else{doCommandWithSecret(pwdPendingId,pwdPendingAc,pwdPendingOrig,pwdPendingBtn,s);clearPending()}
+};
+function clearPending(){pwdPendingId=null;pwdPendingAc=null;pwdPendingOrig=null;pwdPendingBtn=null;pwdPendingDn=null;pwdPendingNewName=null;pwdPendingIsRename=false;pwdPendingIsChangePass=false;pwdPendingCpSecret=null}
+// Change Password overlay
+function showCpOverlay(currentSecret){
+  pwdPendingCpSecret=currentSecret;
+  cpNewInput.value="";cpConfirmInput.value="";cpError.style.display="none";
+  cpOverlay.style.display="flex";
+  setTimeout(function(){cpNewInput.focus()},100);
+}
+cpCancel.onclick=function(){cpOverlay.style.display="none";clearPending()};
+cpNewInput.onkeydown=function(e){if(e.key==="Enter")cpConfirmInput.focus();if(e.key==="Escape")cpCancel.click()};
+cpConfirmInput.onkeydown=function(e){if(e.key==="Enter")cpSubmit.click();if(e.key==="Escape")cpCancel.click()};
+cpSubmit.onclick=function(){
+  var pw=cpNewInput.value;
+  var cf=cpConfirmInput.value;
+  if(pw.length<4||pw.length>32||pw!==cf){cpError.style.display="block";return}
+  cpError.style.display="none";
+  cpOverlay.style.display="none";
+  var id=pwdPendingId;
+  // Send set_password:NEWPASS command
+  var x=new XMLHttpRequest();
+  x.open("POST","/api/command");
+  x.setRequestHeader("Content-Type","application/json");
+  x.onload=function(){
+    try{var d=JSON.parse(x.responseText);
+    if(d.success){
+      setSecret(id,pw);
+      sm("Password changed! New password saved in this browser.");
+      var lc=document.getElementById("lastcmd-"+id);
+      if(lc)lc.innerHTML="<span class=ok>✓ </span>password changed";
+    }else{sm("Failed: "+(d.error||""),true)}
+    }catch(e){sm("Error",true)}
+  };
+  x.onerror=function(){sm("Network error",true)};
+  x.send(JSON.stringify({deviceId:id,action:"set_password:"+pw,deviceSecret:pwdPendingCpSecret}));
   clearPending();
 };
-function clearPending(){pwdPendingId=null;pwdPendingAc=null;pwdPendingOrig=null;pwdPendingBtn=null;pwdPendingDn=null;pwdPendingNewName=null;pwdPendingIsRename=false}
 // Search functionality
 var si=document.getElementById("searchInput");
 var cb=document.getElementById("clearBtn");
@@ -284,6 +340,14 @@ var b=e.target.closest(".btn");
 if(!b||b.disabled)return;
 var id=b.getAttribute("data-id");
 var ac=b.getAttribute("data-action");
+// Intercept Change Password — special flow
+if(ac==="change_pass"){
+  var secret=getSecret(id);
+  if(secret){showCpOverlay(secret);pwdPendingId=id;return}
+  pwdPendingId=id;pwdPendingAc=ac;pwdPendingOrig=b.textContent;pwdPendingBtn=b;pwdPendingIsChangePass=true;
+  showPwd(id,"Enter current password for "+id.slice(0,6)+"...");
+  return;
+}
 var secret=getSecret(id);
 if(secret){doCommandWithSecret(id,ac,b.textContent,b,secret)}else{
   pwdPendingId=id;pwdPendingAc=ac;pwdPendingOrig=b.textContent;pwdPendingBtn=b;pwdPendingIsRename=false;

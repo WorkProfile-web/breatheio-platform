@@ -43,10 +43,10 @@ async function reloadFromBlob() {
   if (count > 0) console.log('[BLOB] Loaded ' + count + ' devices from storage');
 })();
 
-// Persist current state to Blob (fire-and-forget, logs errors)
+// Persist current state to Blob — returns promise so callers can await completion
 function persistToBlob() {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
-  put(BLOB_PATH, JSON.stringify({ devices }), {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return Promise.resolve();
+  return put(BLOB_PATH, JSON.stringify({ devices }), {
     access: 'private',
     contentType: 'application/json',
     addRandomSuffix: false,
@@ -64,19 +64,19 @@ function getDevice(id) {
   return devices[id] || null;
 }
 
-function upsertDevice(id, data) {
+async function upsertDevice(id, data) {
   if (!devices[id]) {
     devices[id] = { id, firstSeen: Date.now() };
   }
   Object.assign(devices[id], data, { lastSeen: Date.now() });
-  persistToBlob();
+  await persistToBlob();
   return devices[id];
 }
 
-function setPendingCommand(id, command) {
+async function setPendingCommand(id, command) {
   if (devices[id]) {
     devices[id].pendingCommand = command;
-    persistToBlob();
+    await persistToBlob();
     return true;
   }
   return false;
@@ -89,7 +89,7 @@ async function getAndClearPendingCommand(id) {
   if (devices[id] && devices[id].pendingCommand != null) {
     const cmd = devices[id].pendingCommand;
     devices[id].pendingCommand = null;
-    persistToBlob();
+    await persistToBlob();
     return cmd;
   }
   return null;
@@ -109,10 +109,10 @@ function getOnlineCount(timeoutMs = 180000) {
   return { online, offline, total: Object.keys(devices).length };
 }
 
-function renameDevice(id, name) {
+async function renameDevice(id, name) {
   if (devices[id]) {
     devices[id].name = name;
-    persistToBlob();
+    await persistToBlob();
     return true;
   }
   return false;
@@ -124,10 +124,10 @@ function verifyDeviceSecret(id, secret) {
   return devices[id].deviceSecret === secret;
 }
 
-function setDeviceSecret(id, secret) {
+async function setDeviceSecret(id, secret) {
   if (devices[id]) {
     devices[id].deviceSecret = secret;
-    persistToBlob();
+    await persistToBlob();
     return true;
   }
   return false;

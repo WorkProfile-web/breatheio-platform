@@ -25,6 +25,9 @@ module.exports = async (req, res) => {
       return res.end(JSON.stringify({ error: 'Missing deviceId or name' }));
     }
 
+    // Reload from Blob to ensure fresh device data
+    await store.reloadFromBlob();
+
     // Verify device secret
     if (!store.verifyDeviceSecret(deviceId, deviceSecret)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -37,7 +40,7 @@ module.exports = async (req, res) => {
       return res.end(JSON.stringify({ error: 'Name cannot be empty' }));
     }
 
-    const ok = store.renameDevice(deviceId, cleaned);
+    const ok = await store.renameDevice(deviceId, cleaned);
     if (!ok) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Device not found' }));

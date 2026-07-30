@@ -41,7 +41,7 @@ module.exports = async (req, res) => {
       return res.end(JSON.stringify({ error: 'Wrong device password. Each device has its own password set during setup.' }));
     }
 
-    store.setPendingCommand(deviceId, action);
+    await store.setPendingCommand(deviceId, action);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, message: `Command "${action}" sent to ${deviceId.substring(0, 6)}...` }));

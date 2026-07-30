@@ -34,14 +34,14 @@ module.exports = async (req, res) => {
         pendingCommand: null
       };
       if (deviceSecret) update.deviceSecret = deviceSecret;
-      store.upsertDevice(deviceId, update);
+      await store.upsertDevice(deviceId, update);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, command: null }));
     }
 
     // Update device secret if ESP sent a different one
     if (deviceSecret && (!existing.deviceSecret || existing.deviceSecret !== deviceSecret)) {
-      store.setDeviceSecret(deviceId, deviceSecret);
+      await store.setDeviceSecret(deviceId, deviceSecret);
     }
 
     // Check for pending command (reloads from Blob to catch cross-instance commands)
@@ -60,7 +60,7 @@ module.exports = async (req, res) => {
     }
 
     // Update status
-    store.upsertDevice(deviceId, updateData);
+    await store.upsertDevice(deviceId, updateData);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, command }));
