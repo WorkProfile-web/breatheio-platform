@@ -68,15 +68,19 @@ module.exports = async (req, res) => {
     // Check for pending command (uses dedicated command storage — NOT devices-data.json)
     const command = await store.getAndClearDeviceCommand(deviceId);
     
-    if (command && command.length > 0) {
-      console.log('[HEARTBEAT] Returning command "' + command + '" to device ' + deviceId.substring(0,6) + '...');
-    }
-
     // Prepare update data
     const updateData = {
       status: 'online',
       ip: req.headers['x-forwarded-for'] || ''
     };
+
+    if (command && command.length > 0) {
+      console.log('[HEARTBEAT] Returning command "' + command + '" to device ' + deviceId.substring(0,6) + '...');
+      updateData.lastExecutedCommand = {
+        action: command,
+        time: Date.now()
+      };
+    }
 
     // Store ping results if ESP32 sent them
     if (pingResults) {

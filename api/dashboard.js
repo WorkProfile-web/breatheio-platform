@@ -1,7 +1,6 @@
 /**
  * GET /api/dashboard
- * Serves device dashboard with: search, inline rename, per-device secret, button feedback.
- * Each ESP32 has its own device secret. You need it to send commands.
+ * Serves device dashboard with: live interactive command tracking, Show Secret modal, first-time setup banners.
  */
 const store = require('./_store');
 
@@ -13,7 +12,7 @@ module.exports = async (req, res) => {
   // Build cards on server
   let cards = '';
   if (allDevices.length === 0) {
-    cards = '<div class="empty-state" id="emptyState"><h2>No devices yet</h2><p>Power on your ESP32 devices and they&apos;ll appear here automatically.</p><p style="margin-top:8px;font-size:12px;color:#4444aa">Each device registers itself using its unique chip ID.</p></div>';
+    cards = '<div class="empty-state" id="emptyState"><h2>No devices connected</h2><p>Power on your ESP32 device and connect it to Wi-Fi via <b>BreatheIO-XXXX</b> hotspot.<br>It will automatically appear here once online.</p></div>';
   } else {
     const sorted = [...allDevices].sort((a, b) => {
       const aOn = (now - a.lastSeen) < 180000, bOn = (now - b.lastSeen) < 180000;
@@ -26,10 +25,15 @@ module.exports = async (req, res) => {
       const cls = on ? 'online' : 'offline';
       const ls = d.lastSeen ? timeAgo(now, d.lastSeen) : 'never';
       const displayName = esc(d.name || ('ESP32-' + d.id.substring(0, 6)));
-      const realName = esc(d.name || '');
-      cards += `<div class="device-card ${cls}" data-device-id="${esc(d.id)}" data-name="${esc((d.name || '').toLowerCase())}" data-id-low="${esc(d.id.toLowerCase())}" data-ip="${esc(d.ip || '')}">
+      const isNew = d.firstSeen && (now - d.firstSeen) < 900000; // <15 mins
+      const newBadge = isNew ? '<span class="new-badge">🆕 NEW DEVICE</span>' : '';
+      const secretAttr = esc(d.deviceSecret || '');
+      cards += `<div class="device-card ${cls}" data-device-id="${esc(d.id)}" data-secret="${secretAttr}" data-name="${esc((d.name || '').toLowerCase())}" data-id-low="${esc(d.id.toLowerCase())}" data-ip="${esc(d.ip || '')}">
         <div class="device-info">
-          <div class="device-name" id="dname-${esc(d.id)}" title="Click to rename">${displayName}</div>
+          <div class="device-header-line">
+            <span class="device-name" id="dname-${esc(d.id)}" title="Double-click to rename">${displayName}</span>
+            ${newBadge}
+          </div>
           <div class="device-id">ID: ${esc(d.id)}</div>
           <div class="device-status">
             <span class="dot ${cls}" id="dot-${esc(d.id)}"></span>
@@ -54,7 +58,7 @@ module.exports = async (req, res) => {
   const html = `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BreatheIO - Device Dashboard</title>
+<title>BreatheIO - Interactive Device Dashboard</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f0f1a;color:#e0e0e0;min-height:100vh}
@@ -82,19 +86,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .device-card.online{border-left:4px solid #00e676}
 .device-card.offline{border-left:4px solid #ff5252;opacity:.6}
 .device-info{display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px}
+.device-header-line{display:flex;align-items:center;gap:8px}
 .device-name{font-size:16px;font-weight:600;color:#fff;cursor:pointer;padding:2px 6px;margin:-2px -6px;border-radius:4px;transition:all .15s}
 .device-name:hover{background:rgba(255,255,255,0.06)}
 .device-name.editing{padding:2px 6px;margin:-2px -6px;background:transparent;cursor:text}
 .device-name input{background:#0f0f1a;border:1px solid #00bcd4;border-radius:4px;color:#fff;font-size:16px;font-weight:600;padding:4px 8px;width:100%;outline:none;font-family:inherit}
 .device-name .save-hint{font-size:11px;color:#00bcd4;margin-left:4px;font-weight:400}
+.new-badge{background:linear-gradient(90deg,#00e676,#00bcd4);color:#000;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;animation:pulse 1.5s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,230,118,0.7)}70%{box-shadow:0 0 0 6px rgba(0,230,118,0)}100%{box-shadow:0 0 0 0 rgba(0,230,118,0)}}
 .device-id{font-size:12px;color:#6666aa;font-family:monospace}
 .device-status{font-size:13px;display:flex;align-items:center;gap:6px}
 .device-status .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .device-status .dot.online{background:#00e676;box-shadow:0 0 6px #00e67688}
 .device-status .dot.offline{background:#ff5252}
-.last-command{font-size:11px;color:#8888aa;margin-top:2px}
-.last-command .ok{color:#00e676}
-.last-command .err{color:#ff5252}
+.last-command{font-size:12px;margin-top:6px;min-height:20px}
+.cmd-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:500}
+.cmd-pill.queued{background:rgba(255,193,7,0.15);color:#ffc107;border:1px solid rgba(255,193,7,0.3);animation:pulseYellow 1.5s infinite}
+@keyframes pulseYellow{0%,100%{opacity:1}50%{opacity:.6}}
+.cmd-pill.executed{background:rgba(0,230,118,0.15);color:#00e676;border:1px solid rgba(0,230,118,0.3)}
+.cmd-pill.error{background:rgba(255,82,82,0.15);color:#ff5252;border:1px solid rgba(255,82,82,0.3)}
 .device-actions{display:flex;gap:8px;flex-wrap:wrap}
 .btn{padding:8px 16px;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:all .2s;color:#fff;min-width:75px;text-align:center;position:relative}
 .btn:active{transform:scale(.92)}
@@ -111,26 +121,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 @keyframes slideIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 .last-seen{font-size:12px;color:#5555aa}
 .no-results{text-align:center;padding:40px 20px;color:#5555aa;display:none}
-.no-results h3{font-size:18px;margin-bottom:6px;color:#7777aa}
-.pwd-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
-.pwd-box{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:14px;padding:28px;width:380px;max-width:90vw}
-.pwd-title{font-size:16px;font-weight:600;color:#fff;margin-bottom:4px}
-.pwd-hint{font-size:12px;color:#8888aa;margin-bottom:16px;line-height:1.5}
+.pwd-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:1000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(5px)}
+.pwd-box{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:14px;padding:28px;width:400px;max-width:90vw}
+.pwd-title{font-size:18px;font-weight:600;color:#fff;margin-bottom:6px}
+.pwd-hint{font-size:13px;color:#8888aa;margin-bottom:16px;line-height:1.5}
 .pwd-box input{width:100%;padding:12px 14px;background:#0f0f1a;border:1px solid #2a2a4a;border-radius:8px;color:#fff;font-size:15px;outline:none;font-family:monospace;letter-spacing:2px}
 .pwd-box input:focus{border-color:#00bcd4}
-.pwd-box input::placeholder{color:#5555aa;letter-spacing:0}
 .pwd-error{color:#ff5252;font-size:13px;margin-top:8px;display:none}
-.pwd-btns{display:flex;gap:10px;margin-top:16px;justify-content:flex-end}
+.pwd-btns{display:flex;gap:10px;margin-top:20px;justify-content:flex-end}
 .pwd-btns button{padding:10px 20px;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s}
 .pwd-btns button:active{transform:scale(.95)}
 #pwdCancel{background:#2a2a4a;color:#aaa}
 #pwdCancel:hover{background:#3a3a5a}
 #pwdSubmit{background:linear-gradient(90deg,#00e676,#00bcd4);color:#000;font-weight:600}
-#pwdSubmit:hover{opacity:.9}
+#secVal{background:#0f0f1a;border:1px dashed #00bcd4;padding:16px;border-radius:10px;font-family:monospace;font-size:22px;letter-spacing:4px;color:#00e676;margin:15px 0;word-break:break-all}
 @media(max-width:600px){.header{padding:15px}.device-card{flex-direction:column;align-items:flex-start}.device-actions{width:100%;justify-content:flex-start}}
 </style></head><body>
 <div class="header">
-<div><h1>BreatheIO Platform</h1><div class="subtitle">Your ESP32 devices, anywhere</div></div>
+<div><h1>BreatheIO Platform</h1><div class="subtitle">Interactive ESP32 Remote Management</div></div>
 <div class="stats"><div class="stat online"><div class="num" id="nOnline">${online}</div><div class="label">Online</div></div>
 <div class="stat offline"><div class="num" id="nOffline">${offline}</div><div class="label">Offline</div></div>
 <div class="stat total"><div class="num" id="nTotal">${allDevices.length}</div><div class="label">Total</div></div></div></div>
@@ -142,11 +150,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 <div class="container" id="devicesContainer">${cards}</div>
 <div class="no-results" id="noResults"><h3>No matching devices</h3><p>Try a different search term</p></div>
 <div class="toast" id="toast"></div>
-<!-- Secret dialog for device control -->
+
+<!-- Secret Display Modal -->
+<div class="pwd-overlay" id="secOverlay">
+<div class="pwd-box" style="text-align:center">
+<div class="pwd-title">🔑 Device Secret</div>
+<div class="pwd-hint">Use this secret to confirm commands on your dashboard.</div>
+<div id="secVal">--------</div>
+<div class="pwd-btns" style="justify-content:center">
+<button id="secCopy" style="background:linear-gradient(90deg,#00e676,#00bcd4);color:#000;font-weight:600">📋 Copy Secret</button>
+<button id="secClose" style="background:#2a2a4a;color:#aaa">Close</button>
+</div>
+</div>
+</div>
+
+<!-- Secret Prompt Dialog -->
 <div class="pwd-overlay" id="pwdOverlay">
 <div class="pwd-box">
 <div class="pwd-title" id="pwdTitle">Enter device secret</div>
-<div class="pwd-hint">Each ESP32 has its own secret set during setup.<br>Look for <b>Secret: XXXXXXXX</b> in the Serial Monitor (shown on boot).</div>
+<div class="pwd-hint">Enter secret to confirm command execution.</div>
 <input type="password" id="pwdInput" maxlength="32" placeholder="Device secret">
 <div class="pwd-error" id="pwdError">Wrong secret</div>
 <div class="pwd-btns">
@@ -155,11 +177,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 </div>
 </div>
 </div>
-<!-- Change Secret overlay -->
+
+<!-- Change Secret Overlay -->
 <div class="pwd-overlay" id="cpOverlay">
 <div class="pwd-box">
 <div class="pwd-title">Set new device secret</div>
-<div class="pwd-hint">Enter a new secret for this device (4-32 characters).<br>The old secret will stop working immediately.</div>
+<div class="pwd-hint">Enter a new secret for this device (4-32 characters).</div>
 <input type="password" id="cpNewInput" maxlength="32" placeholder="New secret">
 <input type="password" id="cpConfirmInput" maxlength="32" placeholder="Confirm new secret" style="margin-top:10px">
 <div class="pwd-error" id="cpError" style="margin-top:10px">Secrets don&apos;t match or too short</div>
@@ -169,26 +192,46 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 </div>
 </div>
 </div>
+
 <script>
 (function(){
 var to=document.getElementById("toast");
 var tt;
-function sm(m,e){clearTimeout(tt);to.textContent=m;to.style.borderColor=e?"#ff5252":"#2a2a4a";to.classList.add("show");tt=setTimeout(function(){to.classList.remove("show")},3000)}
+function sm(m,e){clearTimeout(tt);to.textContent=m;to.style.borderColor=e?"#ff5252":"#2a2a4a";to.classList.add("show");tt=setTimeout(function(){to.classList.remove("show")},3500)}
+
+// Modals
 var pwdOverlay=document.getElementById("pwdOverlay");
 var pwdInput=document.getElementById("pwdInput");
 var pwdError=document.getElementById("pwdError");
 var pwdTitle=document.getElementById("pwdTitle");
+var secOverlay=document.getElementById("secOverlay");
+var secVal=document.getElementById("secVal");
+var secCopy=document.getElementById("secCopy");
+var secClose=document.getElementById("secClose");
 var cpOverlay=document.getElementById("cpOverlay");
 var cpNewInput=document.getElementById("cpNewInput");
 var cpConfirmInput=document.getElementById("cpConfirmInput");
 var cpError=document.getElementById("cpError");
+
 var pwdPendingId=null,pwdPendingAc=null,pwdPendingOrig=null,pwdPendingBtn=null,pwdPendingDn=null,pwdPendingNewName=null,pwdPendingIsRename=false,pwdPendingIsChangePass=false,pwdPendingCpSecret=null;
-// Get stored secret for a device
-function getSecret(id){try{return sessionStorage.getItem("bio_secret_"+id)}catch(e){return null}}
-function setSecret(id,s){try{sessionStorage.setItem("bio_secret_"+id,s)}catch(e){}}
-function clearSecret(id){try{sessionStorage.removeItem("bio_secret_"+id)}catch(e){}}
-// Show secret dialog
-function showPwd(id,title,callback){
+var activeCommandTimestamps={};
+
+// Show Secret Modal
+function showSecretModal(id){
+  var card=document.querySelector('.device-card[data-device-id="'+id+'"]');
+  var sec=(card?card.getAttribute("data-secret"):"")||"NO SECRET SET";
+  secVal.textContent=sec;
+  secOverlay.style.display="flex";
+}
+secCopy.onclick=function(){
+  navigator.clipboard.writeText(secVal.textContent);
+  secCopy.textContent="✓ Copied!";
+  setTimeout(function(){secCopy.textContent="📋 Copy Secret"},2000);
+};
+secClose.onclick=function(){secOverlay.style.display="none"};
+
+// Show secret prompt dialog
+function showPwd(id,title){
   pwdTitle.textContent=title;
   pwdError.style.display="none";
   pwdInput.value="";
@@ -199,14 +242,13 @@ pwdCancel.onclick=function(){pwdOverlay.style.display="none";if(pwdPendingBtn){p
 pwdInput.onkeydown=function(e){if(e.key==="Enter")pwdSubmit.click();if(e.key==="Escape")pwdCancel.click()};
 pwdSubmit.onclick=function(){
   var s=pwdInput.value.trim();
-  if(!s)return;
   pwdOverlay.style.display="none";
   if(pwdPendingIsRename){doRenameWithSecret(pwdPendingId,pwdPendingNewName,pwdPendingDn,s);clearPending()}
   else if(pwdPendingIsChangePass){showCpOverlay(s)}
   else{doCommandWithSecret(pwdPendingId,pwdPendingAc,pwdPendingOrig,pwdPendingBtn,s);clearPending()}
 };
 function clearPending(){pwdPendingId=null;pwdPendingAc=null;pwdPendingOrig=null;pwdPendingBtn=null;pwdPendingDn=null;pwdPendingNewName=null;pwdPendingIsRename=false;pwdPendingIsChangePass=false;pwdPendingCpSecret=null}
-// Change Secret overlay
+
 function showCpOverlay(currentSecret){
   pwdPendingCpSecret=currentSecret;
   cpNewInput.value="";cpConfirmInput.value="";cpError.style.display="none";
@@ -223,25 +265,11 @@ cpSubmit.onclick=function(){
   cpError.style.display="none";
   cpOverlay.style.display="none";
   var id=pwdPendingId;
-  // Send set_password:NEWPASS command
-  var x=new XMLHttpRequest();
-  x.open("POST","/api/command");
-  x.setRequestHeader("Content-Type","application/json");
-  x.onload=function(){
-    try{var d=JSON.parse(x.responseText);
-    if(d.success){
-      setSecret(id,pw);
-      sm("Secret changed! New secret saved in this browser.");
-      var lc=document.getElementById("lastcmd-"+id);
-      if(lc)lc.innerHTML="<span class=ok>✓ </span>secret changed";
-    }else{sm("Failed: "+(d.error||""),true)}
-    }catch(e){sm("Error",true)}
-  };
-  x.onerror=function(){sm("Network error",true)};
-  x.send(JSON.stringify({deviceId:id,action:"set_password:"+pw,deviceSecret:pwdPendingCpSecret}));
+  doCommandWithSecret(id,"set_password:"+pw,"Change Secret",pwdPendingBtn,pwdPendingCpSecret);
   clearPending();
 };
-// Search functionality
+
+// Search
 var si=document.getElementById("searchInput");
 var cb=document.getElementById("clearBtn");
 si.oninput=function(){
@@ -263,7 +291,8 @@ si.oninput=function(){
   document.getElementById("noResults").style.display=(count===0&&cards.length>0)?"block":"none";
 };
 cb.onclick=function(){si.value="";si.oninput();si.focus()};
-// Inline rename: dblclick name to edit
+
+// Inline rename
 document.addEventListener("dblclick",function(e){
   var dn=e.target.closest(".device-name");
   if(!dn||dn.classList.contains("editing"))return;
@@ -283,7 +312,6 @@ document.addEventListener("dblclick",function(e){
 function startRename(id,newName,dn){
   newName=newName.trim();
   if(!newName||newName.length<1){dn.classList.remove("editing");dn.textContent=dn.getAttribute("data-orig")||"...";return;}
-  // Always prompt for secret to confirm rename
   pwdPendingId=id;pwdPendingNewName=newName;pwdPendingDn=dn;pwdPendingIsRename=true;
   showPwd(id,"Enter secret to rename");
 }
@@ -298,38 +326,48 @@ function doRenameWithSecret(id,newName,dn,secret){
     if(d.success){
       dn.classList.remove("editing");dn.textContent=d.name;
       dn.closest(".device-card").setAttribute("data-name",d.name.toLowerCase());
-      setSecret(id,secret);sm("Renamed to "+d.name);
+      sm("Renamed to "+d.name);
     }else{
       dn.classList.remove("editing");dn.textContent=orig;
-      if(x.status===403){clearSecret(id);sm("Wrong secret",true)}else{sm("Rename failed: "+d.error,true)}
+      sm("Rename failed: "+d.error,true);
     }}catch(e){dn.classList.remove("editing");dn.textContent=orig;sm("Error",true)}
   };
   x.onerror=function(){dn.classList.remove("editing");dn.textContent=orig;sm("Network error",true)};
   x.send(JSON.stringify({deviceId:id,name:newName,deviceSecret:secret}));
 }
-// Button click — every action needs secret confirmation (except Show Secret)
+
+// Button actions
 document.addEventListener("click",function(e){
 var b=e.target.closest(".btn");
 if(!b||b.disabled)return;
 var id=b.getAttribute("data-id");
 var ac=b.getAttribute("data-action");
-// Show Secret — no auth needed, send directly
+
 if(ac==="show_secret"){
+  showSecretModal(id);
   doCommandWithSecret(id,ac,b.textContent,b,"");
   return;
 }
-// Change Secret — special two-dialog flow
 if(ac==="change_pass"){
   pwdPendingId=id;pwdPendingAc=ac;pwdPendingOrig=b.textContent;pwdPendingBtn=b;pwdPendingIsChangePass=true;
   showPwd(id,"Enter current secret for "+id.slice(0,6)+"...");
   return;
 }
-// All other actions: ALWAYS prompt for secret, even if stored
 pwdPendingId=id;pwdPendingAc=ac;pwdPendingOrig=b.textContent;pwdPendingBtn=b;pwdPendingIsRename=false;
 showPwd(id,"Enter secret for "+id.slice(0,6)+"...");
 });
+
+// Send Command with 3-Stage Interactive Progress
 function doCommandWithSecret(id,ac,orig,b,secret){
-b.disabled=true;b.textContent="...";
+b.disabled=true;b.textContent="⏳ Queuing...";
+var sentTime=Date.now();
+activeCommandTimestamps[id]={action:ac,time:sentTime,btn:b,origName:orig};
+
+var lc=document.getElementById("lastcmd-"+id);
+if(lc){
+  lc.innerHTML='<span class="cmd-pill queued">⏳ Sent to Cloud &bull; Waiting for ESP32 check-in...</span>';
+}
+
 var x=new XMLHttpRequest();
 x.open("POST","/api/command");
 x.setRequestHeader("Content-Type","application/json");
@@ -337,29 +375,30 @@ x.onload=function(){
   try{
     var d=JSON.parse(x.responseText);
     if(d.success){
-      b.innerHTML=orig+' <span class="btn-feedback ok">✓</span>';
-      setSecret(id,secret);
-      var lc=document.getElementById("lastcmd-"+id);
-      if(lc)lc.innerHTML="<span class=ok>✓ </span>"+ac+" sent at "+new Date().toLocaleTimeString();
-      sm("Sent "+ac+" to "+id.slice(0,6)+"...");
+      sm("Command \""+ac+"\" queued! Waiting for ESP32...");
     }else{
-      b.innerHTML=orig+' <span class="btn-feedback err">✗</span>';
-      if(x.status===403){clearSecret(id);sm("Wrong secret for this device",true)}else{sm("Error: "+d.error,true)}
+      b.textContent=orig;b.disabled=false;
+      if(lc)lc.innerHTML='<span class="cmd-pill error">✗ '+(d.error||"Command failed")+'</span>';
+      sm("Error: "+d.error,true);
+      delete activeCommandTimestamps[id];
     }
   }catch(e){
-    b.innerHTML=orig+' <span class="btn-feedback err">✗</span>';
-    sm("Error",true);
+    b.textContent=orig;b.disabled=false;
+    if(lc)lc.innerHTML='<span class="cmd-pill error">✗ Network error</span>';
+    sm("Network error",true);
+    delete activeCommandTimestamps[id];
   }
-  setTimeout(function(){b.innerHTML=orig;b.disabled=false},2000);
 };
 x.onerror=function(){
-  b.innerHTML=orig+' <span class="btn-feedback err">✗</span>';
-  setTimeout(function(){b.innerHTML=orig;b.disabled=false},2000);
+  b.textContent=orig;b.disabled=false;
+  if(lc)lc.innerHTML='<span class="cmd-pill error">✗ Network error</span>';
   sm("Network error",true);
+  delete activeCommandTimestamps[id];
 };
-x.send(JSON.stringify({deviceId:id,action:ac,deviceSecret:secret}))
+x.send(JSON.stringify({deviceId:id,action:ac,deviceSecret:secret}));
 }
-// Poll devices every 5s: update stats + card appearance
+
+// Live polling (every 3 seconds for instant response)
 setInterval(function(){
 var x=new XMLHttpRequest();
 x.open("GET","/api/devices");
@@ -372,11 +411,13 @@ var dv=d.devices[i];
 var now=Date.now();
 var isOn=(now-dv.lastSeen)<180000;
 if(isOn)on++;else off++;
-// Update card appearance
+
 var card=document.querySelector('.device-card[data-device-id="'+dv.id+'"]');
 if(card){
   var nc=isOn?"online":"offline";
   card.className="device-card "+nc;
+  if(dv.deviceSecret) card.setAttribute("data-secret", dv.deviceSecret);
+
   var dot=document.getElementById("dot-"+dv.id);if(dot)dot.className="dot "+nc;
   var stxt=document.getElementById("stxt-"+dv.id);if(stxt)stxt.textContent=nc;
   var ls=document.getElementById("ls-"+dv.id);
@@ -389,12 +430,33 @@ if(card){
     else lb="\u2022 "+Math.floor(sec/3600)+"h ago";
     ls.textContent=lb;
   }
+
+  // Check interactive command execution status!
+  var lc=document.getElementById("lastcmd-"+dv.id);
+  var activeTrack=activeCommandTimestamps[dv.id];
+
+  if(activeTrack && dv.lastExecutedCommand){
+    if(dv.lastExecutedCommand.time >= activeTrack.time - 2000){
+      // Command Executed Successfully on ESP32!
+      if(lc) lc.innerHTML='<span class="cmd-pill executed">✅ ESP32 executed "'+dv.lastExecutedCommand.action+'"!</span>';
+      if(activeTrack.btn){
+        activeTrack.btn.innerHTML='✓ Executed!';
+        (function(b,orig){
+          setTimeout(function(){b.innerHTML=orig;b.disabled=false},2500);
+        })(activeTrack.btn, activeTrack.origName);
+      }
+      sm("🎉 ESP32 executed \""+dv.lastExecutedCommand.action+"\" successfully!");
+      delete activeCommandTimestamps[dv.id];
+    }
+  } else if(!activeTrack && dv.lastExecutedCommand && lc && !lc.innerHTML){
+    lc.innerHTML='<span class="cmd-pill executed">✅ Last action: "'+dv.lastExecutedCommand.action+'"</span>';
+  }
 }
 }
 document.getElementById("nOnline").textContent=on;
 document.getElementById("nOffline").textContent=off;
-document.getElementById("nTotal").textContent=d.devices.length
-}catch(e){}};x.send()},5000);
+document.getElementById("nTotal").textContent=d.devices.length;
+}catch(e){}};x.send()},3000);
 })();
 </script></body></html>`;
 
@@ -420,13 +482,4 @@ function timeAgo(now, t) {
 function esc(s) {
   if (!s) return '';
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-function parseCookies(str) {
-  const result = {};
-  str.split(';').forEach(pair => {
-    const [k, ...v] = pair.split('=');
-    if (k) result[k.trim()] = v.join('=').trim();
-  });
-  return result;
 }
