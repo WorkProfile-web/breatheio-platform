@@ -9,7 +9,7 @@
  * On cold start -> loads from Blob in background.
  */
 
-const { put, head } = require('@vercel/blob');
+const { put, head, del } = require('@vercel/blob');
 
 const BLOB_PATH = 'devices-data.json';
 
@@ -32,8 +32,10 @@ async function reloadFromBlob() {
       return;
     }
     console.log('[BLOB] head() OK, url length:', info.url.length);
-    const resp = await fetch(info.url, {
-      headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
+    const cacheBusterUrl = info.url + (info.url.includes('?') ? '&' : '?') + 't=' + Date.now();
+    const resp = await fetch(cacheBusterUrl, {
+      headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN },
+      cache: 'no-store'
     });
     console.log('[BLOB] fetch status:', resp.status, resp.statusText);
     if (resp.ok) {
@@ -65,8 +67,10 @@ async function readDeviceFromBlob(id) {
     if (!process.env.BLOB_READ_WRITE_TOKEN) return null;
     const info = await head(BLOB_PATH).catch(() => null);
     if (!info) return null;
-    const resp = await fetch(info.url, {
-      headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
+    const cacheBusterUrl = info.url + (info.url.includes('?') ? '&' : '?') + 't=' + Date.now();
+    const resp = await fetch(cacheBusterUrl, {
+      headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN },
+      cache: 'no-store'
     });
     if (!resp.ok) return null;
     const data = await resp.json();
@@ -86,6 +90,7 @@ function persistToBlob() {
   return put(BLOB_PATH, JSON.stringify({ devices }), {
     access: 'private',
     contentType: 'application/json',
+    cacheControlMaxAge: 0,
     addRandomSuffix: false,
     allowOverwrite: true,
   }).catch(err => {
@@ -125,9 +130,10 @@ async function setDeviceCommand(deviceId, command) {
   pendingCommands[deviceId] = command;
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     const cmdPath = 'cmd-' + deviceId + '.json';
-    await put(cmdPath, JSON.stringify({ command }), {
+    await put(cmdPath, JSON.stringify({ command, ts: Date.now() }), {
       access: 'private',
       contentType: 'application/json',
+      cacheControlMaxAge: 0,
       addRandomSuffix: false,
       allowOverwrite: true,
     }).catch(err => {
@@ -143,15 +149,13 @@ async function getAndClearDeviceCommand(deviceId) {
   if (pendingCommands[deviceId] != null) {
     const cmd = pendingCommands[deviceId];
     delete pendingCommands[deviceId];
-    // Also clear Blob file to prevent cross-instance duplicate delivery
+    // Delete Blob file to prevent cross-instance duplicate delivery
     if (process.env.BLOB_READ_WRITE_TOKEN) {
       const cmdPath = 'cmd-' + deviceId + '.json';
-      await put(cmdPath, JSON.stringify({ command: null }), {
-        access: 'private',
-        contentType: 'application/json',
-        addRandomSuffix: false,
-        allowOverwrite: true,
-      }).catch(() => {});
+      const info = await head(cmdPath).catch(() => null);
+      if (info) {
+        await del(info.url).catch(() => {});
+      }
     }
     return cmd;
   }
@@ -162,20 +166,17 @@ async function getAndClearDeviceCommand(deviceId) {
       const cmdPath = 'cmd-' + deviceId + '.json';
       const info = await head(cmdPath).catch(() => null);
       if (info) {
-        const resp = await fetch(info.url, {
-          headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
+        const cacheBusterUrl = info.url + (info.url.includes('?') ? '&' : '?') + 't=' + Date.now();
+        const resp = await fetch(cacheBusterUrl, {
+          headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN },
+          cache: 'no-store'
         });
         if (resp.ok) {
           const data = await resp.json();
           if (data && data.command != null) {
             const cmd = data.command;
-            // Mark as consumed by writing null
-            await put(cmdPath, JSON.stringify({ command: null }), {
-              access: 'private',
-              contentType: 'application/json',
-              addRandomSuffix: false,
-              allowOverwrite: true,
-            }).catch(() => {});
+            // Delete blob file instantly upon consumption to avoid CDN duplicates
+            await del(info.url).catch(() => {});
             return cmd;
           }
         }
