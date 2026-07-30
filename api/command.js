@@ -38,7 +38,7 @@ module.exports = async (req, res) => {
     // Verify device secret
     if (!store.verifyDeviceSecret(deviceId, deviceSecret)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Wrong device password. Each device has its own password set during setup.' }));
+      return res.end(JSON.stringify({ error: 'Wrong device secret. Each device has its own secret set during setup.' }));
     }
 
     await store.setPendingCommand(deviceId, action);

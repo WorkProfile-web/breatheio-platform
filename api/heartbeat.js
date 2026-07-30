@@ -24,7 +24,10 @@ module.exports = async (req, res) => {
       return res.end(JSON.stringify({ error: 'Missing deviceId' }));
     }
 
-    // Auto-register if new device
+    // FIRST: reload from Blob so we don't auto-register a device that already exists
+    await store.reloadFromBlob();
+
+    // Auto-register only if genuinely new (not in memory AND not in Blob)
     const existing = store.getDevice(deviceId);
     if (!existing) {
       const update = {

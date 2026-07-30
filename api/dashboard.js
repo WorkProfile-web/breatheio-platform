@@ -1,6 +1,6 @@
 /**
  * GET /api/dashboard
- * Serves device dashboard with: search, inline rename, per-device password, button feedback, ping display.
+ * Serves device dashboard with: search, inline rename, per-device secret, button feedback, ping display.
  * Each ESP32 has its own device secret. You need it to send commands.
  */
 const store = require('./_store');
@@ -43,9 +43,7 @@ module.exports = async (req, res) => {
           <button class="btn btn-secret" data-id="${esc(d.id)}" data-action="show_secret">Show Secret</button>
           <button class="btn btn-restart" data-id="${esc(d.id)}" data-action="restart">Restart</button>
           <button class="btn btn-wifi" data-id="${esc(d.id)}" data-action="wifi_reset">Reset WiFi</button>
-          <button class="btn btn-led-on" data-id="${esc(d.id)}" data-action="led_on">LED ON</button>
-          <button class="btn btn-led-off" data-id="${esc(d.id)}" data-action="led_off">LED OFF</button>
-          <button class="btn btn-pass" data-id="${esc(d.id)}" data-action="change_pass">Change Pass</button>
+          <button class="btn btn-pass" data-id="${esc(d.id)}" data-action="change_pass">Change Secret</button>
         </div>
         <div class="ping-results" id="ping-${esc(d.id)}" style="display:none"></div>
       </div>`;
@@ -107,8 +105,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .btn-secret{background:#6a1b9a}.btn-secret:hover:not(:disabled){background:#8e24aa}
 .btn-restart{background:#e53935}.btn-restart:hover:not(:disabled){background:#ef5350}
 .btn-wifi{background:#e65100}.btn-wifi:hover:not(:disabled){background:#ff6d00}
-.btn-led-on{background:#2e7d32}.btn-led-on:hover:not(:disabled){background:#43a047}
-.btn-led-off{background:#6d4c41}.btn-led-off:hover:not(:disabled){background:#8d6e63}
 .btn-pass{background:#00838f}.btn-pass:hover:not(:disabled){background:#00acc1}
 .empty-state{text-align:center;padding:80px 20px;color:#6666aa}
 .empty-state h2{font-size:22px;margin-bottom:10px;color:#8888bb}
@@ -167,30 +163,30 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 <div class="container" id="devicesContainer">${cards}</div>
 <div class="no-results" id="noResults"><h3>No matching devices</h3><p>Try a different search term</p></div>
 <div class="toast" id="toast"></div>
-<!-- Password dialog for device control -->
+<!-- Secret dialog for device control -->
 <div class="pwd-overlay" id="pwdOverlay">
 <div class="pwd-box">
-<div class="pwd-title" id="pwdTitle">Enter device password</div>
-<div class="pwd-hint">Each ESP32 has its own password set during setup.<br>Look for <b>Secret: XXXXXXXX</b> in the Serial Monitor (shown on boot).</div>
-<input type="password" id="pwdInput" maxlength="32" placeholder="Device password">
-<div class="pwd-error" id="pwdError">Wrong password</div>
+<div class="pwd-title" id="pwdTitle">Enter device secret</div>
+<div class="pwd-hint">Each ESP32 has its own secret set during setup.<br>Look for <b>Secret: XXXXXXXX</b> in the Serial Monitor (shown on boot).</div>
+<input type="password" id="pwdInput" maxlength="32" placeholder="Device secret">
+<div class="pwd-error" id="pwdError">Wrong secret</div>
 <div class="pwd-btns">
 <button id="pwdCancel">Cancel</button>
 <button id="pwdSubmit">Send Command</button>
 </div>
 </div>
 </div>
-<!-- Change Password overlay -->
+<!-- Change Secret overlay -->
 <div class="pwd-overlay" id="cpOverlay">
 <div class="pwd-box">
-<div class="pwd-title">Set new device password</div>
-<div class="pwd-hint">Enter a new password for this device (4-32 characters).<br>The old password will stop working immediately.</div>
-<input type="password" id="cpNewInput" maxlength="32" placeholder="New password">
-<input type="password" id="cpConfirmInput" maxlength="32" placeholder="Confirm new password" style="margin-top:10px">
-<div class="pwd-error" id="cpError" style="margin-top:10px">Passwords don&apos;t match or too short</div>
+<div class="pwd-title">Set new device secret</div>
+<div class="pwd-hint">Enter a new secret for this device (4-32 characters).<br>The old secret will stop working immediately.</div>
+<input type="password" id="cpNewInput" maxlength="32" placeholder="New secret">
+<input type="password" id="cpConfirmInput" maxlength="32" placeholder="Confirm new secret" style="margin-top:10px">
+<div class="pwd-error" id="cpError" style="margin-top:10px">Secrets don&apos;t match or too short</div>
 <div class="pwd-btns">
 <button id="cpCancel">Cancel</button>
-<button id="cpSubmit" style="background:linear-gradient(90deg,#00e676,#00bcd4);color:#000;font-weight:600">Change Password</button>
+<button id="cpSubmit" style="background:linear-gradient(90deg,#00e676,#00bcd4);color:#000;font-weight:600">Change Secret</button>
 </div>
 </div>
 </div>
@@ -212,7 +208,7 @@ var pwdPendingId=null,pwdPendingAc=null,pwdPendingOrig=null,pwdPendingBtn=null,p
 function getSecret(id){try{return sessionStorage.getItem("bio_secret_"+id)}catch(e){return null}}
 function setSecret(id,s){try{sessionStorage.setItem("bio_secret_"+id,s)}catch(e){}}
 function clearSecret(id){try{sessionStorage.removeItem("bio_secret_"+id)}catch(e){}}
-// Show password dialog
+// Show secret dialog
 function showPwd(id,title,callback){
   pwdTitle.textContent=title;
   pwdError.style.display="none";
@@ -231,7 +227,7 @@ pwdSubmit.onclick=function(){
   else{doCommandWithSecret(pwdPendingId,pwdPendingAc,pwdPendingOrig,pwdPendingBtn,s);clearPending()}
 };
 function clearPending(){pwdPendingId=null;pwdPendingAc=null;pwdPendingOrig=null;pwdPendingBtn=null;pwdPendingDn=null;pwdPendingNewName=null;pwdPendingIsRename=false;pwdPendingIsChangePass=false;pwdPendingCpSecret=null}
-// Change Password overlay
+// Change Secret overlay
 function showCpOverlay(currentSecret){
   pwdPendingCpSecret=currentSecret;
   cpNewInput.value="";cpConfirmInput.value="";cpError.style.display="none";
@@ -256,9 +252,9 @@ cpSubmit.onclick=function(){
     try{var d=JSON.parse(x.responseText);
     if(d.success){
       setSecret(id,pw);
-      sm("Password changed! New password saved in this browser.");
+      sm("Secret changed! New secret saved in this browser.");
       var lc=document.getElementById("lastcmd-"+id);
-      if(lc)lc.innerHTML="<span class=ok>✓ </span>password changed";
+      if(lc)lc.innerHTML="<span class=ok>✓ </span>secret changed";
     }else{sm("Failed: "+(d.error||""),true)}
     }catch(e){sm("Error",true)}
   };
@@ -311,7 +307,7 @@ function startRename(id,newName,dn){
   var secret=getSecret(id);
   if(secret){doRenameWithSecret(id,newName,dn,secret)}else{
     pwdPendingId=id;pwdPendingNewName=newName;pwdPendingDn=dn;pwdPendingIsRename=true;
-    showPwd(id,"Enter password to rename");
+    showPwd(id,"Enter secret to rename");
   }
 }
 function doRenameWithSecret(id,newName,dn,secret){
@@ -328,7 +324,7 @@ function doRenameWithSecret(id,newName,dn,secret){
       setSecret(id,secret);sm("Renamed to "+d.name);
     }else{
       dn.classList.remove("editing");dn.textContent=orig;
-      if(x.status===403){clearSecret(id);sm("Wrong password",true)}else{sm("Rename failed: "+d.error,true)}
+      if(x.status===403){clearSecret(id);sm("Wrong secret",true)}else{sm("Rename failed: "+d.error,true)}
     }}catch(e){dn.classList.remove("editing");dn.textContent=orig;sm("Error",true)}
   };
   x.onerror=function(){dn.classList.remove("editing");dn.textContent=orig;sm("Network error",true)};
@@ -345,13 +341,13 @@ if(ac==="change_pass"){
   var secret=getSecret(id);
   if(secret){showCpOverlay(secret);pwdPendingId=id;return}
   pwdPendingId=id;pwdPendingAc=ac;pwdPendingOrig=b.textContent;pwdPendingBtn=b;pwdPendingIsChangePass=true;
-  showPwd(id,"Enter current password for "+id.slice(0,6)+"...");
+  showPwd(id,"Enter current secret for "+id.slice(0,6)+"...");
   return;
 }
 var secret=getSecret(id);
 if(secret){doCommandWithSecret(id,ac,b.textContent,b,secret)}else{
   pwdPendingId=id;pwdPendingAc=ac;pwdPendingOrig=b.textContent;pwdPendingBtn=b;pwdPendingIsRename=false;
-  showPwd(id,"Enter password for "+id.slice(0,6)+"...");
+  showPwd(id,"Enter secret for "+id.slice(0,6)+"...");
 }
 });
 function doCommandWithSecret(id,ac,orig,b,secret){
@@ -370,7 +366,7 @@ x.onload=function(){
       sm("Sent "+ac+" to "+id.slice(0,6)+"...");
     }else{
       b.innerHTML=orig+' <span class="btn-feedback err">✗</span>';
-      if(x.status===403){clearSecret(id);sm("Wrong password for this device",true)}else{sm("Error: "+d.error,true)}
+      if(x.status===403){clearSecret(id);sm("Wrong secret for this device",true)}else{sm("Error: "+d.error,true)}
     }
   }catch(e){
     b.innerHTML=orig+' <span class="btn-feedback err">✗</span>';

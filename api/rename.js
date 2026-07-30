@@ -31,7 +31,7 @@ module.exports = async (req, res) => {
     // Verify device secret
     if (!store.verifyDeviceSecret(deviceId, deviceSecret)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Wrong device password' }));
+      return res.end(JSON.stringify({ error: 'Wrong device secret' }));
     }
 
     const cleaned = name.trim().substring(0, 32);
