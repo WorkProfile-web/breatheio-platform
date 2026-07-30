@@ -1,19 +1,11 @@
 /**
  * POST /api/command
  * Send a command to a specific device.
- * Body: { deviceId: string, action: string }
+ * Body: { deviceId: string, action: string, deviceSecret?: string }
  * Actions: "restart", "ping", "led_on", "led_off", or custom
+ * Requires matching deviceSecret to control the device.
  */
 const store = require('./_store');
-
-function parsePinCookie(cookieHeader) {
-  if (!cookieHeader) return null;
-  for (const pair of cookieHeader.split(';')) {
-    const [k, ...v] = pair.split('=');
-    if (k && k.trim() === 'bio_pin') return v.join('=').trim();
-  }
-  return null;
-}
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -27,24 +19,26 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { deviceId, action } = req.body || {};
-
-    // Check PIN: body > cookie > env
-    const pin = req.body.pin || parsePinCookie(req.headers.cookie);
-    if (!store.checkPin(pin)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Invalid PIN' }));
-    }
+    const { deviceId, action, deviceSecret } = req.body || {};
 
     if (!deviceId || !action) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Missing deviceId or action' }));
     }
 
+    // Reload from Blob FIRST — ensures device data is fresh even on cold start
+    await store.reloadFromBlob();
+
     const device = store.getDevice(deviceId);
     if (!device) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Device not found' }));
+    }
+
+    // Verify device secret
+    if (!store.verifyDeviceSecret(deviceId, deviceSecret)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Wrong device password. Each device has its own password set during setup.' }));
     }
 
     store.setPendingCommand(deviceId, action);

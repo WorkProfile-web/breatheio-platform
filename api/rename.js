@@ -1,19 +1,10 @@
 /**
  * POST /api/rename
  * Rename a device from the dashboard.
- * Body: { deviceId: string, name: string, pin?: string }
+ * Body: { deviceId: string, name: string, deviceSecret?: string }
  * Response: { success: true } or { error: '...' }
  */
 const store = require('./_store');
-
-function parsePinCookie(cookieHeader) {
-  if (!cookieHeader) return null;
-  for (const pair of cookieHeader.split(';')) {
-    const [k, ...v] = pair.split('=');
-    if (k && k.trim() === 'bio_pin') return v.join('=').trim();
-  }
-  return null;
-}
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -27,18 +18,17 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { deviceId, name } = req.body || {};
-
-    // Check PIN: body > cookie > env
-    const pin = req.body.pin || parsePinCookie(req.headers.cookie);
-    if (!store.checkPin(pin)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Invalid PIN' }));
-    }
+    const { deviceId, name, deviceSecret } = req.body || {};
 
     if (!deviceId || !name) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Missing deviceId or name' }));
+    }
+
+    // Verify device secret
+    if (!store.verifyDeviceSecret(deviceId, deviceSecret)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Wrong device password' }));
     }
 
     const cleaned = name.trim().substring(0, 32);

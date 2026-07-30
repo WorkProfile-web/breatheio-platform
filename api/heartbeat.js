@@ -18,7 +18,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { deviceId, pingResults } = req.body || {};
+    const { deviceId, deviceSecret, pingResults } = req.body || {};
     if (!deviceId) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Missing deviceId' }));
@@ -27,14 +27,21 @@ module.exports = async (req, res) => {
     // Auto-register if new device
     const existing = store.getDevice(deviceId);
     if (!existing) {
-      store.upsertDevice(deviceId, {
+      const update = {
         name: `ESP32-${deviceId.substring(0, 6)}`,
         status: 'online',
         ip: req.headers['x-forwarded-for'] || '',
         pendingCommand: null
-      });
+      };
+      if (deviceSecret) update.deviceSecret = deviceSecret;
+      store.upsertDevice(deviceId, update);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, command: null }));
+    }
+
+    // Update device secret if ESP sent a different one
+    if (deviceSecret && (!existing.deviceSecret || existing.deviceSecret !== deviceSecret)) {
+      store.setDeviceSecret(deviceId, deviceSecret);
     }
 
     // Check for pending command (reloads from Blob to catch cross-instance commands)

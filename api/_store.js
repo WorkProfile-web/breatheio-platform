@@ -118,10 +118,19 @@ function renameDevice(id, name) {
   return false;
 }
 
-function checkPin(pin) {
-  const expected = process.env.DASHBOARD_PIN;
-  if (!expected) return true; // No PIN set = no auth required
-  return pin === expected;
+function verifyDeviceSecret(id, secret) {
+  if (!devices[id]) return false;
+  if (!devices[id].deviceSecret) return true; // No secret set = legacy device, allow
+  return devices[id].deviceSecret === secret;
+}
+
+function setDeviceSecret(id, secret) {
+  if (devices[id]) {
+    devices[id].deviceSecret = secret;
+    persistToBlob();
+    return true;
+  }
+  return false;
 }
 
 module.exports = {
@@ -134,5 +143,6 @@ module.exports = {
   getOnlineCount,
   reloadFromBlob,
   renameDevice,
-  checkPin,
+  verifyDeviceSecret,
+  setDeviceSecret,
 };

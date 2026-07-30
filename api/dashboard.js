@@ -1,56 +1,11 @@
 /**
  * GET /api/dashboard
- * Serves device dashboard with: PIN login, search, inline rename, button feedback, ping display.
- * Set DASHBOARD_PIN env var to enable password protection.
+ * Serves device dashboard with: search, inline rename, per-device password, button feedback, ping display.
+ * Each ESP32 has its own device secret. You need it to send commands.
  */
 const store = require('./_store');
 
 module.exports = async (req, res) => {
-  // Check if PIN login is needed — check cookie or show login page
-  const pinRequired = !!process.env.DASHBOARD_PIN;
-  const cookies = parseCookies(req.headers.cookie || '');
-  const loggedIn = !pinRequired || cookies.bio_pin === process.env.DASHBOARD_PIN;
-
-  // If PIN required and not logged in, show login page
-  if (!loggedIn) {
-    const loginHtml = `<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BreatheIO - Login</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f0f1a;color:#e0e0e0;min-height:100vh;display:flex;align-items:center;justify-content:center}
-.login-box{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:16px;padding:40px;width:360px;max-width:90vw;text-align:center}
-.login-box h1{font-size:22px;margin-bottom:8px;background:linear-gradient(90deg,#00e676,#00bcd4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.login-box p{color:#8888aa;font-size:13px;margin-bottom:24px}
-.login-box input{width:100%;padding:12px 16px;background:#0f0f1a;border:1px solid #2a2a4a;border-radius:8px;color:#fff;font-size:16px;outline:none;text-align:center;letter-spacing:8px}
-.login-box input:focus{border-color:#00bcd4}
-.login-box .error{color:#ff5252;font-size:13px;margin-top:10px;display:none}
-.login-box button{margin-top:20px;padding:12px 32px;background:linear-gradient(90deg,#00e676,#00bcd4);border:none;border-radius:8px;color:#000;font-size:15px;font-weight:600;cursor:pointer;transition:all .2s}
-.login-box button:hover{transform:scale(1.05)}
-.login-box button:active{transform:scale(.95)}
-</style></head><body>
-<div class="login-box">
-<h1>BreatheIO</h1>
-<p>Enter the dashboard PIN to continue</p>
-<input type="password" id="pinInput" maxlength="32" autofocus placeholder="Enter PIN">
-<button id="loginBtn">Unlock</button>
-</div>
-<script>
-document.getElementById("loginBtn").onclick=function(){login()};
-document.getElementById("pinInput").onkeydown=function(e){if(e.key==="Enter")login()};
-function login(){
-  var p=document.getElementById("pinInput").value;
-  if(!p)return;
-  document.cookie="bio_pin="+p+";path=/;max-age=86400";
-  location.reload();
-}
-</script></body></html>`;
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(loginHtml);
-  }
-
-  // ======== DASHBOARD PAGE ========
   await store.reloadFromBlob();
   const now = Date.now();
   const allDevices = store.getAllDevices();
@@ -85,7 +40,9 @@ function login(){
         </div>
         <div class="device-actions">
           <button class="btn btn-ping" data-id="${esc(d.id)}" data-action="ping">Ping</button>
+          <button class="btn btn-secret" data-id="${esc(d.id)}" data-action="show_secret">Show Secret</button>
           <button class="btn btn-restart" data-id="${esc(d.id)}" data-action="restart">Restart</button>
+          <button class="btn btn-wifi" data-id="${esc(d.id)}" data-action="wifi_reset">Reset WiFi</button>
           <button class="btn btn-led-on" data-id="${esc(d.id)}" data-action="led_on">LED ON</button>
           <button class="btn btn-led-off" data-id="${esc(d.id)}" data-action="led_off">LED OFF</button>
         </div>
@@ -146,7 +103,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .btn:active{transform:scale(.92)}
 .btn:disabled{opacity:.5;cursor:wait;transform:none}
 .btn-ping{background:#3949ab}.btn-ping:hover:not(:disabled){background:#5c6bc0}
+.btn-secret{background:#6a1b9a}.btn-secret:hover:not(:disabled){background:#8e24aa}
 .btn-restart{background:#e53935}.btn-restart:hover:not(:disabled){background:#ef5350}
+.btn-wifi{background:#e65100}.btn-wifi:hover:not(:disabled){background:#ff6d00}
 .btn-led-on{background:#2e7d32}.btn-led-on:hover:not(:disabled){background:#43a047}
 .btn-led-off{background:#6d4c41}.btn-led-off:hover:not(:disabled){background:#8d6e63}
 .empty-state{text-align:center;padding:80px 20px;color:#6666aa}
@@ -176,6 +135,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .ping-loss .lost{color:#ff5252}
 .no-results{text-align:center;padding:40px 20px;color:#5555aa;display:none}
 .no-results h3{font-size:18px;margin-bottom:6px;color:#7777aa}
+.pwd-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.pwd-box{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:14px;padding:28px;width:380px;max-width:90vw}
+.pwd-title{font-size:16px;font-weight:600;color:#fff;margin-bottom:4px}
+.pwd-hint{font-size:12px;color:#8888aa;margin-bottom:16px;line-height:1.5}
+.pwd-box input{width:100%;padding:12px 14px;background:#0f0f1a;border:1px solid #2a2a4a;border-radius:8px;color:#fff;font-size:15px;outline:none;font-family:monospace;letter-spacing:2px}
+.pwd-box input:focus{border-color:#00bcd4}
+.pwd-box input::placeholder{color:#5555aa;letter-spacing:0}
+.pwd-error{color:#ff5252;font-size:13px;margin-top:8px;display:none}
+.pwd-btns{display:flex;gap:10px;margin-top:16px;justify-content:flex-end}
+.pwd-btns button{padding:10px 20px;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s}
+.pwd-btns button:active{transform:scale(.95)}
+#pwdCancel{background:#2a2a4a;color:#aaa}
+#pwdCancel:hover{background:#3a3a5a}
+#pwdSubmit{background:linear-gradient(90deg,#00e676,#00bcd4);color:#000;font-weight:600}
+#pwdSubmit:hover{opacity:.9}
 @media(max-width:600px){.header{padding:15px}.device-card{flex-direction:column;align-items:flex-start}.device-actions{width:100%;justify-content:flex-start}}
 </style></head><body>
 <div class="header">
@@ -191,11 +165,51 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 <div class="container" id="devicesContainer">${cards}</div>
 <div class="no-results" id="noResults"><h3>No matching devices</h3><p>Try a different search term</p></div>
 <div class="toast" id="toast"></div>
+<!-- Password dialog for device control -->
+<div class="pwd-overlay" id="pwdOverlay">
+<div class="pwd-box">
+<div class="pwd-title" id="pwdTitle">Enter device password</div>
+<div class="pwd-hint">Each ESP32 has its own password set during setup.<br>Look for <b>Secret: XXXXXXXX</b> in the Serial Monitor (shown on boot).</div>
+<input type="password" id="pwdInput" maxlength="32" placeholder="Device password">
+<div class="pwd-error" id="pwdError">Wrong password</div>
+<div class="pwd-btns">
+<button id="pwdCancel">Cancel</button>
+<button id="pwdSubmit">Send Command</button>
+</div>
+</div>
+</div>
 <script>
 (function(){
 var to=document.getElementById("toast");
 var tt;
 function sm(m,e){clearTimeout(tt);to.textContent=m;to.style.borderColor=e?"#ff5252":"#2a2a4a";to.classList.add("show");tt=setTimeout(function(){to.classList.remove("show")},3000)}
+var pwdOverlay=document.getElementById("pwdOverlay");
+var pwdInput=document.getElementById("pwdInput");
+var pwdError=document.getElementById("pwdError");
+var pwdTitle=document.getElementById("pwdTitle");
+var pwdPendingId=null,pwdPendingAc=null,pwdPendingOrig=null,pwdPendingBtn=null,pwdPendingDn=null,pwdPendingNewName=null,pwdPendingIsRename=false;
+// Get stored secret for a device
+function getSecret(id){try{return sessionStorage.getItem("bio_secret_"+id)}catch(e){return null}}
+function setSecret(id,s){try{sessionStorage.setItem("bio_secret_"+id,s)}catch(e){}}
+function clearSecret(id){try{sessionStorage.removeItem("bio_secret_"+id)}catch(e){}}
+// Show password dialog
+function showPwd(id,title,callback){
+  pwdTitle.textContent=title;
+  pwdError.style.display="none";
+  pwdInput.value="";
+  pwdOverlay.style.display="flex";
+  setTimeout(function(){pwdInput.focus()},100);
+}
+pwdCancel.onclick=function(){pwdOverlay.style.display="none";if(pwdPendingBtn){pwdPendingBtn.disabled=false;pwdPendingBtn.textContent=pwdPendingOrig}clearPending()};
+pwdInput.onkeydown=function(e){if(e.key==="Enter")pwdSubmit.click();if(e.key==="Escape")pwdCancel.click()};
+pwdSubmit.onclick=function(){
+  var s=pwdInput.value.trim();
+  if(!s)return;
+  pwdOverlay.style.display="none";
+  if(pwdPendingIsRename){doRenameWithSecret(pwdPendingId,pwdPendingNewName,pwdPendingDn,s)}else{doCommandWithSecret(pwdPendingId,pwdPendingAc,pwdPendingOrig,pwdPendingBtn,s)}
+  clearPending();
+};
+function clearPending(){pwdPendingId=null;pwdPendingAc=null;pwdPendingOrig=null;pwdPendingBtn=null;pwdPendingDn=null;pwdPendingNewName=null;pwdPendingIsRename=false}
 // Search functionality
 var si=document.getElementById("searchInput");
 var cb=document.getElementById("clearBtn");
@@ -218,7 +232,7 @@ si.oninput=function(){
   document.getElementById("noResults").style.display=(count===0&&cards.length>0)?"block":"none";
 };
 cb.onclick=function(){si.value="";si.oninput();si.focus()};
-// Inline rename: click name to edit
+// Inline rename: dblclick name to edit
 document.addEventListener("dblclick",function(e){
   var dn=e.target.closest(".device-name");
   if(!dn||dn.classList.contains("editing"))return;
@@ -229,15 +243,22 @@ document.addEventListener("dblclick",function(e){
   var inp=document.getElementById("renameInput");
   inp.focus();inp.select();
   inp.onkeydown=function(ev){
-    if(ev.key==="Enter")doRename(id,inp.value,dn);
+    if(ev.key==="Enter")startRename(id,inp.value,dn);
     if(ev.key==="Escape"){dn.classList.remove("editing");dn.textContent=cur;}
     ev.stopPropagation();
   };
-  inp.onblur=function(){setTimeout(function(){doRename(id,inp.value,dn)},150)};
+  inp.onblur=function(){setTimeout(function(){startRename(id,inp.value,dn)},150)};
 });
-function doRename(id,newName,dn){
+function startRename(id,newName,dn){
   newName=newName.trim();
   if(!newName||newName.length<1){dn.classList.remove("editing");dn.textContent=dn.getAttribute("data-orig")||"...";return;}
+  var secret=getSecret(id);
+  if(secret){doRenameWithSecret(id,newName,dn,secret)}else{
+    pwdPendingId=id;pwdPendingNewName=newName;pwdPendingDn=dn;pwdPendingIsRename=true;
+    showPwd(id,"Enter password to rename");
+  }
+}
+function doRenameWithSecret(id,newName,dn,secret){
   var orig=dn.textContent;
   dn.innerHTML="...";
   var x=new XMLHttpRequest();
@@ -246,24 +267,30 @@ function doRename(id,newName,dn){
   x.onload=function(){
     try{var d=JSON.parse(x.responseText);
     if(d.success){
-      dn.classList.remove("editing");
-      dn.textContent=d.name;
+      dn.classList.remove("editing");dn.textContent=d.name;
       dn.closest(".device-card").setAttribute("data-name",d.name.toLowerCase());
-      sm("Renamed to "+d.name);
+      setSecret(id,secret);sm("Renamed to "+d.name);
     }else{
-      dn.classList.remove("editing");dn.textContent=orig;sm("Rename failed: "+d.error,true);
+      dn.classList.remove("editing");dn.textContent=orig;
+      if(x.status===403){clearSecret(id);sm("Wrong password",true)}else{sm("Rename failed: "+d.error,true)}
     }}catch(e){dn.classList.remove("editing");dn.textContent=orig;sm("Error",true)}
   };
   x.onerror=function(){dn.classList.remove("editing");dn.textContent=orig;sm("Network error",true)};
-  x.send(JSON.stringify({deviceId:id,name:newName}));
+  x.send(JSON.stringify({deviceId:id,name:newName,deviceSecret:secret}));
 }
-// Button click with loading state + visual feedback
+// Button click with password check + visual feedback
 document.addEventListener("click",function(e){
 var b=e.target.closest(".btn");
 if(!b||b.disabled)return;
 var id=b.getAttribute("data-id");
 var ac=b.getAttribute("data-action");
-var orig=b.textContent;
+var secret=getSecret(id);
+if(secret){doCommandWithSecret(id,ac,b.textContent,b,secret)}else{
+  pwdPendingId=id;pwdPendingAc=ac;pwdPendingOrig=b.textContent;pwdPendingBtn=b;pwdPendingIsRename=false;
+  showPwd(id,"Enter password for "+id.slice(0,6)+"...");
+}
+});
+function doCommandWithSecret(id,ac,orig,b,secret){
 b.disabled=true;b.textContent="...";
 var x=new XMLHttpRequest();
 x.open("POST","/api/command");
@@ -273,12 +300,13 @@ x.onload=function(){
     var d=JSON.parse(x.responseText);
     if(d.success){
       b.innerHTML=orig+' <span class="btn-feedback ok">✓</span>';
+      setSecret(id,secret);
       var lc=document.getElementById("lastcmd-"+id);
       if(lc)lc.innerHTML="<span class=ok>✓ </span>"+ac+" sent at "+new Date().toLocaleTimeString();
       sm("Sent "+ac+" to "+id.slice(0,6)+"...");
     }else{
       b.innerHTML=orig+' <span class="btn-feedback err">✗</span>';
-      sm("Error: "+d.error,true);
+      if(x.status===403){clearSecret(id);sm("Wrong password for this device",true)}else{sm("Error: "+d.error,true)}
     }
   }catch(e){
     b.innerHTML=orig+' <span class="btn-feedback err">✗</span>';
@@ -291,8 +319,8 @@ x.onerror=function(){
   setTimeout(function(){b.innerHTML=orig;b.disabled=false},2000);
   sm("Network error",true);
 };
-x.send(JSON.stringify({deviceId:id,action:ac}))
-});
+x.send(JSON.stringify({deviceId:id,action:ac,deviceSecret:secret}))
+}
 // Poll devices every 5s: update stats + card appearance + ping results
 setInterval(function(){
 var x=new XMLHttpRequest();
