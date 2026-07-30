@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
     const deviceList = store.getAllDevices().map(d => ({
       id: d.id,
       name: d.name,
-      status: (now - d.lastSeen) < 180000 ? 'online' : 'offline',
+      status: (now - d.lastSeen) < 35000 ? 'online' : 'offline',
       lastSeen: d.lastSeen,
       firstSeen: d.firstSeen,
       ip: d.ip,
