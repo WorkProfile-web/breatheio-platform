@@ -35,14 +35,16 @@ let devices = {};
   }
 })();
 
-// Persist current state to Blob (fire-and-forget)
+// Persist current state to Blob (fire-and-forget, logs errors)
 function persistToBlob() {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return;
   put(BLOB_PATH, JSON.stringify({ devices }), {
     access: 'public',
     contentType: 'application/json',
     addRandomSuffix: false,
-  }).catch(() => {});
+  }).catch(err => {
+    console.error('[BLOB] Write failed:', err.message);
+  });
 }
 
 function getAll() {
