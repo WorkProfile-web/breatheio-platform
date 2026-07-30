@@ -22,7 +22,9 @@ let devices = {};
     if (!process.env.BLOB_READ_WRITE_TOKEN) return;
     const info = await head(BLOB_PATH).catch(() => null);
     if (!info) return;
-    const resp = await fetch(info.url);
+    const resp = await fetch(info.url, {
+      headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
+    });
     if (resp.ok) {
       const data = await resp.json();
       if (data && data.devices) {
@@ -39,7 +41,7 @@ let devices = {};
 function persistToBlob() {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return;
   put(BLOB_PATH, JSON.stringify({ devices }), {
-    access: 'public',
+    access: 'private',
     contentType: 'application/json',
     addRandomSuffix: false,
   }).catch(err => {

@@ -33,7 +33,7 @@ module.exports = async (req, res) => {
   try {
     const testData = { test: true, time: Date.now() };
     const putResult = await put('_test.json', JSON.stringify(testData), {
-      access: 'public',
+      access: 'private',
       contentType: 'application/json',
       addRandomSuffix: false,
     });
@@ -50,7 +50,9 @@ module.exports = async (req, res) => {
 
   try {
     const info = await head('_test.json');
-    const resp = await fetch(info.url);
+    const resp = await fetch(info.url, {
+      headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
+    });
     const text = await resp.text();
     result.blobTest.readOk = true;
     result.blobTest.readContent = text;
