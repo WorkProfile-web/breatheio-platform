@@ -37,8 +37,8 @@ module.exports = async (req, res) => {
       return res.end(JSON.stringify({ success: true, command: null }));
     }
 
-    // Check for pending command
-    const command = store.getAndClearPendingCommand(deviceId);
+    // Check for pending command (reloads from Blob to catch cross-instance commands)
+    const command = await store.getAndClearPendingCommand(deviceId);
 
     // Update status
     store.upsertDevice(deviceId, {

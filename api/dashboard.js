@@ -1,11 +1,13 @@
 /**
  * GET /api/dashboard
  * Serves device dashboard. Cards rendered server-side.
- * JS just handles buttons + polling stats.
+ * JS polls /api/devices to update stats AND card appearance.
  */
 const store = require('./_store');
 
 module.exports = async (req, res) => {
+  // Reload from Blob so we always see the latest data (cross-instance)
+  await store.reloadFromBlob();
   const now = Date.now();
   const allDevices = store.getAllDevices();
   const devicesJson = JSON.stringify(allDevices.map(d => ({
@@ -29,17 +31,17 @@ module.exports = async (req, res) => {
       const on = (now - d.lastSeen) < 180000;
       const cls = on ? 'online' : 'offline';
       const ls = d.lastSeen ? timeAgo(now, d.lastSeen) : 'never';
-      cards += '<div class="device-card ' + cls + '">' +
+      cards += '<div class="device-card ' + cls + '" data-idx="' + esc(d.id) + '">' +
         '<div class="device-info">' +
         '<div class="device-name">' + esc(d.name || ('ESP32-' + d.id.substring(0, 6))) + '</div>' +
         '<div class="device-id">ID: ' + esc(d.id) + '</div>' +
-        '<div class="device-status"><span class="dot ' + cls + '"></span>' + (on ? 'online' : 'offline') + ' <span class="last-seen">&bull; ' + ls + '</span></div>' +
+        '<div class="device-status"><span class="dot ' + cls + '" id="dot-' + esc(d.id) + '"></span><span class="status-text" id="stxt-' + esc(d.id) + '">' + (on ? 'online' : 'offline') + '</span> <span class="last-seen" id="ls-' + esc(d.id) + '">&bull; ' + ls + '</span></div>' +
         '</div>' +
         '<div class="device-actions">' +
-        '<button class="btn btn-ping" data-id="' + d.id + '" data-action="ping">Ping</button>' +
-        '<button class="btn btn-restart" data-id="' + d.id + '" data-action="restart">Restart</button>' +
-        '<button class="btn btn-led-on" data-id="' + d.id + '" data-action="led_on">LED ON</button>' +
-        '<button class="btn btn-led-off" data-id="' + d.id + '" data-action="led_off">LED OFF</button>' +
+        '<button class="btn btn-ping" data-id="' + esc(d.id) + '" data-action="ping">Ping</button>' +
+        '<button class="btn btn-restart" data-id="' + esc(d.id) + '" data-action="restart">Restart</button>' +
+        '<button class="btn btn-led-on" data-id="' + esc(d.id) + '" data-action="led_on">LED ON</button>' +
+        '<button class="btn btn-led-off" data-id="' + esc(d.id) + '" data-action="led_off">LED OFF</button>' +
         '</div></div>';
     }
   }
@@ -69,8 +71,10 @@ module.exports = async (req, res) => {
 '.device-card:hover{border-color:#3a3a6a;background:#1e1e35}' +
 '.device-card.online{border-left:4px solid #00e676}' +
 '.device-card.offline{border-left:4px solid #ff5252;opacity:.6}' +
+'.device-card.online .device-name{color:#fff}' +
+'.device-card.offline .device-name{color:#666}' +
 '.device-info{display:flex;flex-direction:column;gap:4px}' +
-'.device-name{font-size:16px;font-weight:600;color:#fff}' +
+'.device-name{font-size:16px;font-weight:600;}' +
 '.device-id{font-size:12px;color:#6666aa;font-family:monospace}' +
 '.device-status{font-size:13px;display:flex;align-items:center;gap:6px}' +
 '.device-status .dot{width:8px;height:8px;border-radius:50%;display:inline-block}' +
@@ -101,7 +105,6 @@ module.exports = async (req, res) => {
 '<div class="toast" id="toast"></div>' +
 '<script>' +
 '(function(){' +
-'var con=document.getElementById("devicesContainer");' +
 'var to=document.getElementById("toast");' +
 'var tt;' +
 'function sm(m,e){clearTimeout(tt);to.textContent=m;to.style.borderColor=e?"#ff5252":"#2a2a4a";to.classList.add("show");tt=setTimeout(function(){to.classList.remove("show")},3000)}' +
@@ -122,7 +125,16 @@ module.exports = async (req, res) => {
 'x.open("GET","/api/devices");' +
 'x.onload=function(){try{var d=JSON.parse(x.responseText);if(!d.devices||d.devices.length===0)return;' +
 'var on=0,off=0;' +
-'for(var i=0;i<d.devices.length;i++){if((Date.now()-d.devices[i].lastSeen)<180000)on++;else off++}' +
+'for(var i=0;i<d.devices.length;i++){var dv=d.devices[i];var now=Date.now();var isOn=(now-dv.lastSeen)<180000;if(isOn)on++;else off++;' +
+'var card=document.querySelector(".device-card[data-idx=\""+dv.id+"\"]");' +
+'if(card){var newCls=isOn?"online":"offline";' +
+'card.className="device-card "+newCls;' +
+'var dot=document.getElementById("dot-"+dv.id);if(dot)dot.className="dot "+newCls;' +
+'var stxt=document.getElementById("stxt-"+dv.id);if(stxt)stxt.textContent=newCls;' +
+'var ls=document.getElementById("ls-"+dv.id);if(ls){' +
+'var sec=Math.floor((now-dv.lastSeen)/1000);' +
+'var label;if(sec<5)label="\u2022 just now";else if(sec<60)label="\u2022 "+sec+"s ago";else if(sec<3600)label="\u2022 "+Math.floor(sec/60)+"m ago";else label="\u2022 "+Math.floor(sec/3600)+"h ago";' +
+'ls.textContent=label}}}' +
 'document.getElementById("nOnline").textContent=on;' +
 'document.getElementById("nOffline").textContent=off;' +
 'document.getElementById("nTotal").textContent=d.devices.length' +

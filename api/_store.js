@@ -16,8 +16,8 @@ const BLOB_PATH = 'devices-data.json';
 // In-memory cache
 let devices = {};
 
-// Load from Vercel Blob on startup
-(async function init() {
+// Reload devices from Vercel Blob into the in-memory cache
+async function reloadFromBlob() {
   try {
     if (!process.env.BLOB_READ_WRITE_TOKEN) return;
     const info = await head(BLOB_PATH).catch(() => null);
@@ -29,12 +29,18 @@ let devices = {};
       const data = await resp.json();
       if (data && data.devices) {
         devices = data.devices;
-        console.log('[BLOB] Loaded ' + Object.keys(devices).length + ' devices from storage');
       }
     }
   } catch (e) {
     // Blob doesn't exist yet or error — start fresh
   }
+}
+
+// Load from Vercel Blob on startup
+(async function init() {
+  await reloadFromBlob();
+  const count = Object.keys(devices).length;
+  if (count > 0) console.log('[BLOB] Loaded ' + count + ' devices from storage');
 })();
 
 // Persist current state to Blob (fire-and-forget, logs errors)
@@ -76,7 +82,10 @@ function setPendingCommand(id, command) {
   return false;
 }
 
-function getAndClearPendingCommand(id) {
+async function getAndClearPendingCommand(id) {
+  // Reload from Blob first — ensures commands sent from other instances are picked up
+  await reloadFromBlob();
+
   if (devices[id] && devices[id].pendingCommand != null) {
     const cmd = devices[id].pendingCommand;
     devices[id].pendingCommand = null;
@@ -107,5 +116,6 @@ module.exports = {
   setPendingCommand,
   getAndClearPendingCommand,
   getAllDevices,
-  getOnlineCount
+  getOnlineCount,
+  reloadFromBlob,
 };

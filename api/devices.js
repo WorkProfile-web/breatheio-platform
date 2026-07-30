@@ -16,6 +16,8 @@ module.exports = async (req, res) => {
   }
 
   try {
+    // Reload from Blob so we always see the latest data (cross-instance)
+    await store.reloadFromBlob();
     const now = Date.now();
     const deviceList = store.getAllDevices().map(d => ({
       id: d.id,
