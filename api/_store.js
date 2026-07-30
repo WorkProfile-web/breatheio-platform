@@ -162,7 +162,9 @@ async function getAndClearDeviceCommand(deviceId) {
       const cmdPath = 'cmd-' + deviceId + '.json';
       const info = await head(cmdPath).catch(() => null);
       if (info) {
-        const resp = await fetch(info.url);
+        const resp = await fetch(info.url, {
+          headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
+        });
         if (resp.ok) {
           const data = await resp.json();
           if (data && data.command != null) {

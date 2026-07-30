@@ -91,7 +91,9 @@ module.exports = async (req, res) => {
       const cmdPath = 'cmd-' + deviceId + '.json';
       const cmdInfo = await head(cmdPath).catch(() => null);
       if (cmdInfo) {
-        const cmdResp = await fetch(cmdInfo.url);
+        const cmdResp = await fetch(cmdInfo.url, {
+          headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
+        });
         if (cmdResp.ok) {
           const cmdData = await cmdResp.json();
           result.commandFile = cmdData;
