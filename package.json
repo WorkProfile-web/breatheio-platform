@@ -4,5 +4,8 @@
   "description": "BreatheIO - Remote ESP32 device management platform",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.6.1"
   }
 }
