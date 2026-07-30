@@ -106,14 +106,22 @@ function getDevice(id) {
   return devices[id] || null;
 }
 
-// In-memory status update — only patches Gist on structural changes (new device, name/secret change)
+// In-memory status update — flushes lastSeen to Gist once every 60 seconds
+// Ensures all Vercel serverless instances see fresh lastSeen and report device ONLINE
 async function upsertDevice(id, data) {
   const isNew = !devices[id];
   if (isNew) {
     devices[id] = { id, firstSeen: Date.now() };
   }
 
-  let structuralChange = isNew;
+  const now = Date.now();
+  const prevLastSeen = devices[id].lastSeen || 0;
+
+  // Flush to Gist if:
+  // 1. Truly new device
+  // 2. Name or secret changed
+  // 3. Last Gist sync was >60s ago (uses only ~1,400 Gist writes/day vs 120,000 limit!)
+  let structuralChange = isNew || (now - prevLastSeen > 60000);
   for (const k in data) {
     if (k !== 'lastSeen' && k !== 'status' && devices[id][k] !== data[k]) {
       structuralChange = true;
@@ -121,7 +129,7 @@ async function upsertDevice(id, data) {
     }
   }
 
-  Object.assign(devices[id], data, { lastSeen: Date.now() });
+  Object.assign(devices[id], data, { lastSeen: now });
 
   if (structuralChange) {
     await persistToBlob().catch(() => {});
