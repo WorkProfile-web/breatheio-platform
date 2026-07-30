@@ -44,6 +44,7 @@ function persistToBlob() {
     access: 'private',
     contentType: 'application/json',
     addRandomSuffix: false,
+    allowOverwrite: true,
   }).catch(err => {
     console.error('[BLOB] Write failed:', err.message);
   });

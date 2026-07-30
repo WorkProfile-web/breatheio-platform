@@ -36,6 +36,7 @@ module.exports = async (req, res) => {
       access: 'private',
       contentType: 'application/json',
       addRandomSuffix: false,
+      allowOverwrite: true,
     });
     result.blobTest = { writeOk: true, url: putResult.url };
   } catch (writeErr) {
