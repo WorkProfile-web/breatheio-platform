@@ -344,6 +344,8 @@ x.onload=function(){
     if(d.success){
       if(ac==="show_secret"){
         sm("🔒 'show_secret' sent! Secret will print to hardware Serial Monitor only.");
+      }else if(ac.indexOf("set_password:")===0){
+        sm("🔒 New secret queued! Sending to ESP32...");
       }else{
         sm('Command "'+ac+'" queued! Waiting for ESP32...');
       }
@@ -406,9 +408,12 @@ if(card){
   var activeTrack=activeCommandTimestamps[dv.id];
 
   if(activeTrack && dv.lastExecutedCommand){
+    var actLabel = dv.lastExecutedCommand.action;
+    if(actLabel.indexOf("set_password:")===0) actLabel = "Change Secret";
+
     if(dv.lastExecutedCommand.action === activeTrack.action){
       // Command Executed Successfully on ESP32!
-      if(lc) lc.innerHTML='<span class="cmd-pill executed">✅ ESP32 executed '+dv.lastExecutedCommand.action+'!</span>';
+      if(lc) lc.innerHTML='<span class="cmd-pill executed">✅ ESP32 executed '+actLabel+'!</span>';
       if(activeTrack.btn){
         activeTrack.btn.innerHTML='✓ Executed!';
         (function(b,orig){
@@ -417,13 +422,17 @@ if(card){
       }
       if(dv.lastExecutedCommand.action==="show_secret"){
         sm("🔒 ESP32 received show_secret! Secret printed to USB Serial Monitor.");
+      }else if(dv.lastExecutedCommand.action.indexOf("set_password:")===0){
+        sm("🔒 New secret changed successfully!");
       }else{
         sm('🎉 ESP32 executed "'+dv.lastExecutedCommand.action+'" successfully!');
       }
       delete activeCommandTimestamps[dv.id];
     }
   } else if(!activeTrack && dv.lastExecutedCommand && lc && !lc.innerHTML){
-    lc.innerHTML='<span class="cmd-pill executed">✅ Last action: '+dv.lastExecutedCommand.action+'</span>';
+    var actLabel = dv.lastExecutedCommand.action;
+    if(actLabel.indexOf("set_password:")===0) actLabel = "Change Secret";
+    lc.innerHTML='<span class="cmd-pill executed">✅ Last action: '+actLabel+'</span>';
   }
 }
 }
