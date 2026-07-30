@@ -60,9 +60,11 @@ module.exports = async (req, res) => {
       }
     }
 
-    // Update device secret if ESP sent a different one
+    // Update device secret if ESP sent a different one, or set default 123FFF
     if (deviceSecret && (!existing.deviceSecret || existing.deviceSecret !== deviceSecret)) {
       await store.setDeviceSecret(deviceId, deviceSecret);
+    } else if (!existing.deviceSecret) {
+      await store.setDeviceSecret(deviceId, '123FFF');
     }
 
     // Check for pending command (uses dedicated command storage — NOT devices-data.json)
