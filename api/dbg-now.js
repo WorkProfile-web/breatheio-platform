@@ -23,6 +23,7 @@ module.exports = async (req, res) => {
     deviceId,
     memory: null,
     blob: null,
+    commandFile: null,
     env: {
       hasToken: !!process.env.BLOB_READ_WRITE_TOKEN,
       tokenLength: process.env.BLOB_READ_WRITE_TOKEN ? process.env.BLOB_READ_WRITE_TOKEN.length : 0
@@ -82,6 +83,25 @@ module.exports = async (req, res) => {
     }
   } catch (e) {
     result.blob = 'Error: ' + e.message;
+  }
+
+  // 3. Check for pending command file
+  try {
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      const cmdPath = 'cmd-' + deviceId + '.json';
+      const cmdInfo = await head(cmdPath).catch(() => null);
+      if (cmdInfo) {
+        const cmdResp = await fetch(cmdInfo.url);
+        if (cmdResp.ok) {
+          const cmdData = await cmdResp.json();
+          result.commandFile = cmdData;
+        }
+      } else {
+        result.commandFile = 'No command file found';
+      }
+    }
+  } catch (e) {
+    result.commandFile = 'Error: ' + e.message;
   }
 
   res.end(JSON.stringify(result, null, 2));

@@ -65,10 +65,9 @@ module.exports = async (req, res) => {
       await store.setDeviceSecret(deviceId, deviceSecret);
     }
 
-    // Check for pending command (reloads from Blob to catch cross-instance commands)
-    const command = await store.getAndClearPendingCommand(deviceId);
+    // Check for pending command (uses dedicated command storage — NOT devices-data.json)
+    const command = await store.getAndClearDeviceCommand(deviceId);
     
-    // DEBUG log — check Vercel logs to see what command was returned
     if (command && command.length > 0) {
       console.log('[HEARTBEAT] Returning command "' + command + '" to device ' + deviceId.substring(0,6) + '...');
     }

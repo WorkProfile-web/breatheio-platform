@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
       }
     }
 
-    await store.setPendingCommand(deviceId, action);
+    await store.setDeviceCommand(deviceId, action);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, message: `Command "${action}" sent to ${deviceId.substring(0, 6)}...` }));

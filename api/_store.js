@@ -111,32 +111,78 @@ async function upsertDevice(id, data) {
   return devices[id];
 }
 
-async function setPendingCommand(id, command) {
-  if (devices[id]) {
-    devices[id].pendingCommand = command;
-    await persistToBlob();
-    return true;
+// ============================================================
+// SEPARATE command storage — NOT in devices-data.json
+// Uses dedicated Blob files (cmd-{deviceId}.json) per device
+// This prevents device status updates from overwriting commands
+// ============================================================
+
+// In-memory command cache (separate from devices)
+let pendingCommands = {};
+
+// Set a pending command for a device
+async function setDeviceCommand(deviceId, command) {
+  pendingCommands[deviceId] = command;
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const cmdPath = 'cmd-' + deviceId + '.json';
+    await put(cmdPath, JSON.stringify({ command }), {
+      access: 'private',
+      contentType: 'application/json',
+      addRandomSuffix: false,
+      allowOverwrite: true,
+    }).catch(err => {
+      console.error('[CMD] Write FAILED:', err.message);
+      throw err;
+    });
   }
-  return false;
 }
 
-async function getAndClearPendingCommand(id) {
-  // FIRST: check in-memory cache (instant, no race condition)
-  if (devices[id] && devices[id].pendingCommand != null) {
-    const cmd = devices[id].pendingCommand;
-    devices[id].pendingCommand = null;
-    await persistToBlob();  // persist the clear to Blob
+// Get and clear a pending command for a device
+async function getAndClearDeviceCommand(deviceId) {
+  // FIRST: check in-memory cache
+  if (pendingCommands[deviceId] != null) {
+    const cmd = pendingCommands[deviceId];
+    delete pendingCommands[deviceId];
+    // Also clear Blob file to prevent cross-instance duplicate delivery
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      const cmdPath = 'cmd-' + deviceId + '.json';
+      await put(cmdPath, JSON.stringify({ command: null }), {
+        access: 'private',
+        contentType: 'application/json',
+        addRandomSuffix: false,
+        allowOverwrite: true,
+      }).catch(() => {});
+    }
     return cmd;
   }
 
-  // SECOND: reload from Blob (in case command was set by a different instance)
-  await reloadFromBlob();
-  if (devices[id] && devices[id].pendingCommand != null) {
-    const cmd = devices[id].pendingCommand;
-    devices[id].pendingCommand = null;
-    await persistToBlob();
-    return cmd;
+  // SECOND: check dedicated Blob file (for cross-instance delivery)
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const cmdPath = 'cmd-' + deviceId + '.json';
+      const info = await head(cmdPath).catch(() => null);
+      if (info) {
+        const resp = await fetch(info.url);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.command != null) {
+            const cmd = data.command;
+            // Mark as consumed by writing null
+            await put(cmdPath, JSON.stringify({ command: null }), {
+              access: 'private',
+              contentType: 'application/json',
+              addRandomSuffix: false,
+              allowOverwrite: true,
+            }).catch(() => {});
+            return cmd;
+          }
+        }
+      }
+    } catch (e) {
+      console.log('[CMD] Blob read error:', e.message);
+    }
   }
+
   return null;
 }
 
@@ -182,8 +228,8 @@ module.exports = {
   getAll,
   getDevice,
   upsertDevice,
-  setPendingCommand,
-  getAndClearPendingCommand,
+  setDeviceCommand,
+  getAndClearDeviceCommand,
   getAllDevices,
   getOnlineCount,
   reloadFromBlob,
