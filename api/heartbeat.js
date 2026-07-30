@@ -28,18 +28,36 @@ module.exports = async (req, res) => {
     await store.reloadFromBlob();
 
     // Auto-register only if genuinely new (not in memory AND not in Blob)
-    const existing = store.getDevice(deviceId);
+    let existing = store.getDevice(deviceId);
     if (!existing) {
-      const update = {
-        name: `ESP32-${deviceId.substring(0, 6)}`,
-        status: 'online',
-        ip: req.headers['x-forwarded-for'] || '',
-        pendingCommand: null
-      };
-      if (deviceSecret) update.deviceSecret = deviceSecret;
-      await store.upsertDevice(deviceId, update);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: true, command: null }));
+      // Fallback: try direct Blob read — reloadFromBlob() might have failed on cold start
+      const blobDevice = await store.readDeviceFromBlob(deviceId);
+      if (blobDevice) {
+        // Device exists in Blob! Load into memory without overwriting Blob
+        console.log('[HEARTBEAT] Device exists in Blob (but not in memory). Loading...');
+        if (!store.getDevice(deviceId)) {
+          // Manually add to memory via upsert but DON'T include pendingCommand:null
+          await store.upsertDevice(deviceId, { 
+            ...blobDevice, 
+            status: 'online',
+            ip: req.headers['x-forwarded-for'] || ''
+          });
+        }
+        existing = store.getDevice(deviceId);
+      } else {
+        // Truly new device — auto-register without overwriting pendingCommand
+        console.log('[HEARTBEAT] Truly new device, registering:', deviceId);
+        const update = {
+          name: `ESP32-${deviceId.substring(0, 6)}`,
+          status: 'online',
+          ip: req.headers['x-forwarded-for'] || '',
+          pendingCommand: null
+        };
+        if (deviceSecret) update.deviceSecret = deviceSecret;
+        await store.upsertDevice(deviceId, update);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: true, command: null }));
+      }
     }
 
     // Update device secret if ESP sent a different one

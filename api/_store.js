@@ -19,20 +19,35 @@ let devices = {};
 // Reload devices from Vercel Blob into the in-memory cache
 async function reloadFromBlob() {
   try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) return;
-    const info = await head(BLOB_PATH).catch(() => null);
-    if (!info) return;
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      console.log('[BLOB] reloadFromBlob: NO TOKEN');
+      return;
+    }
+    const info = await head(BLOB_PATH).catch(err => {
+      console.log('[BLOB] head() failed:', err.message);
+      return null;
+    });
+    if (!info) {
+      console.log('[BLOB] reloadFromBlob: head returned null, blob may not exist yet');
+      return;
+    }
+    console.log('[BLOB] head() OK, url length:', info.url.length);
     const resp = await fetch(info.url, {
       headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
     });
+    console.log('[BLOB] fetch status:', resp.status, resp.statusText);
     if (resp.ok) {
       const data = await resp.json();
+      const count = data && data.devices ? Object.keys(data.devices).length : 0;
+      console.log('[BLOB] Loaded', count, 'devices from storage');
       if (data && data.devices) {
         devices = data.devices;
       }
+    } else {
+      console.log('[BLOB] fetch NOT OK:', resp.status, resp.statusText);
     }
   } catch (e) {
-    // Blob doesn't exist yet or error — start fresh
+    console.log('[BLOB] reloadFromBlob ERROR:', e.message);
   }
 }
 
@@ -42,6 +57,27 @@ async function reloadFromBlob() {
   const count = Object.keys(devices).length;
   if (count > 0) console.log('[BLOB] Loaded ' + count + ' devices from storage');
 })();
+
+// Directly read a single device from Blob without touching the in-memory cache
+// Used as a fallback when reloadFromBlob() fails on cold start
+async function readDeviceFromBlob(id) {
+  try {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) return null;
+    const info = await head(BLOB_PATH).catch(() => null);
+    if (!info) return null;
+    const resp = await fetch(info.url, {
+      headers: { Authorization: 'Bearer ' + process.env.BLOB_READ_WRITE_TOKEN }
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (data && data.devices && data.devices[id]) {
+      return data.devices[id];
+    }
+  } catch (e) {
+    console.log('[BLOB] readDeviceFromBlob error:', e.message);
+  }
+  return null;
+}
 
 // Persist current state to Blob — returns promise so callers can await completion
 // Throws on failure so callers know the write didn't go through
@@ -147,4 +183,5 @@ module.exports = {
   renameDevice,
   verifyDeviceSecret,
   setDeviceSecret,
+  readDeviceFromBlob,
 };
