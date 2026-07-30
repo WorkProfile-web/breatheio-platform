@@ -375,7 +375,7 @@ x.onload=function(){
   try{
     var d=JSON.parse(x.responseText);
     if(d.success){
-      sm("Command \""+ac+"\" queued! Waiting for ESP32...");
+      sm('Command "'+ac+'" queued! Waiting for ESP32...');
     }else{
       b.textContent=orig;b.disabled=false;
       if(lc)lc.innerHTML='<span class="cmd-pill error">✗ '+(d.error||"Command failed")+'</span>';
@@ -438,18 +438,18 @@ if(card){
   if(activeTrack && dv.lastExecutedCommand){
     if(dv.lastExecutedCommand.time >= activeTrack.time - 2000){
       // Command Executed Successfully on ESP32!
-      if(lc) lc.innerHTML='<span class="cmd-pill executed">✅ ESP32 executed "'+dv.lastExecutedCommand.action+'"!</span>';
+      if(lc) lc.innerHTML='<span class="cmd-pill executed">✅ ESP32 executed '+dv.lastExecutedCommand.action+'!</span>';
       if(activeTrack.btn){
         activeTrack.btn.innerHTML='✓ Executed!';
         (function(b,orig){
           setTimeout(function(){b.innerHTML=orig;b.disabled=false},2500);
         })(activeTrack.btn, activeTrack.origName);
       }
-      sm("🎉 ESP32 executed \""+dv.lastExecutedCommand.action+"\" successfully!");
+      sm('🎉 ESP32 executed "'+dv.lastExecutedCommand.action+'" successfully!');
       delete activeCommandTimestamps[dv.id];
     }
   } else if(!activeTrack && dv.lastExecutedCommand && lc && !lc.innerHTML){
-    lc.innerHTML='<span class="cmd-pill executed">✅ Last action: "'+dv.lastExecutedCommand.action+'"</span>';
+    lc.innerHTML='<span class="cmd-pill executed">✅ Last action: '+dv.lastExecutedCommand.action+'</span>';
   }
 }
 }
