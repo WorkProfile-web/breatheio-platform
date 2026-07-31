@@ -51,19 +51,18 @@ module.exports = async (req, res) => {
           name: `ESP32-${deviceId.substring(0, 6)}`,
           status: 'online',
           ip: req.headers['x-forwarded-for'] || '',
-          pendingCommand: null
+          pendingCommand: null,
+          deviceSecret: '123FFF',
+          customSecretSet: false
         };
-        if (!existing || !existing.customSecretSet) {
-          update.deviceSecret = '123FFF';
-        }
         await store.upsertDevice(deviceId, update);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ success: true, command: null }));
       }
     }
 
-    // Force default secret to 123FFF unless user explicitly set a custom secret via dashboard
-    if (!existing.customSecretSet && existing.deviceSecret !== '123FFF') {
+    // Initialize default secret to 123FFF ONLY if device has no secret at all
+    if (!existing.deviceSecret) {
       await store.setDeviceSecret(deviceId, '123FFF', false);
     }
 
