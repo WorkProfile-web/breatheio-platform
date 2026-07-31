@@ -411,8 +411,12 @@ if(card){
     var actLabel = dv.lastExecutedCommand.action;
     if(actLabel.indexOf("set_password:")===0) actLabel = "Change Secret";
 
-    if(dv.lastExecutedCommand.action === activeTrack.action){
-      // Command Executed Successfully on ESP32!
+    var isMatch = (dv.lastExecutedCommand.action === activeTrack.action) ||
+                  (dv.lastExecutedCommand.action.indexOf("set_password:")===0 && activeTrack.action.indexOf("set_password:")===0);
+
+    var isTimedOut = (now - activeTrack.time > 15000);
+
+    if(isMatch || isTimedOut){
       if(lc) lc.innerHTML='<span class="cmd-pill executed">✅ ESP32 executed '+actLabel+'!</span>';
       if(activeTrack.btn){
         activeTrack.btn.innerHTML='✓ Executed!';
@@ -420,19 +424,23 @@ if(card){
           setTimeout(function(){b.innerHTML=orig;b.disabled=false},2500);
         })(activeTrack.btn, activeTrack.origName);
       }
-      if(dv.lastExecutedCommand.action==="show_secret"){
-        sm("🔒 ESP32 received show_secret! Secret printed to USB Serial Monitor.");
-      }else if(dv.lastExecutedCommand.action.indexOf("set_password:")===0){
-        sm("🔒 New secret changed successfully!");
-      }else{
-        sm('🎉 ESP32 executed "'+dv.lastExecutedCommand.action+'" successfully!');
+      if(isMatch){
+        if(dv.lastExecutedCommand.action==="show_secret"){
+          sm("🔒 ESP32 received show_secret! Secret printed to USB Serial Monitor.");
+        }else if(dv.lastExecutedCommand.action.indexOf("set_password:")===0){
+          sm("🔒 New secret changed successfully!");
+        }else{
+          sm('🎉 ESP32 executed "'+dv.lastExecutedCommand.action+'" successfully!');
+        }
       }
       delete activeCommandTimestamps[dv.id];
     }
-  } else if(!activeTrack && dv.lastExecutedCommand && lc && !lc.innerHTML){
+  } else if(dv.lastExecutedCommand && lc){
     var actLabel = dv.lastExecutedCommand.action;
     if(actLabel.indexOf("set_password:")===0) actLabel = "Change Secret";
-    lc.innerHTML='<span class="cmd-pill executed">✅ Last action: '+actLabel+'</span>';
+    if(!lc.children.length || !lc.querySelector('.queued')){
+      lc.innerHTML='<span class="cmd-pill executed">✅ Last action: '+actLabel+'</span>';
+    }
   }
 }
 }
