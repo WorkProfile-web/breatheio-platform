@@ -183,7 +183,7 @@ function getAllDevices() {
   return Object.values(devices);
 }
 
-function getOnlineCount(timeoutMs = 35000) {
+function getOnlineCount(timeoutMs = 120000) {
   const now = Date.now();
   let online = 0, offline = 0;
   for (const d of Object.values(devices)) {
